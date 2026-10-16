@@ -44,7 +44,8 @@ test.describe('M7 用量统计/用时检查', () => {
 
     const secs = await pages.replyMeta.durationSeconds();
     const text = await pages.replyMeta.durationButton().innerText();
-    expect(text.trim()).toMatch(/^用时\s*\d+\s*秒/);
+    // 官方版文本为「已完成，用时 N秒」（带过程前缀），断言落在含秒数即可
+    expect(text.trim()).toMatch(/用时\s*\d+\s*秒/);
     expect(secs).toBeGreaterThanOrEqual(0);
     test.info().annotations.push({ type: 'note', description: `用时: ${text.trim()} → ${secs}s` });
   });

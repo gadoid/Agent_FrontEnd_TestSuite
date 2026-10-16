@@ -2,20 +2,22 @@
 /**
  * 对话消息区组件（transcript）
  *
- * 实测 DOM（v0.1.5-rc.1）：
- *   用户消息：  div[class*="userRow"] > div[class*="userStack"] > div[class*="bubble"]
- *   助手回复：  div[class*="hWmORq_root"] > div[class*="hWmORq_body"] > markdown
- *   滚动容器：  div[class*="EvIC1a_scroll"]
+ * 官方版实测（2026-10 真机探测）——全部挂语义钩子，不再依赖构建 hash 类名：
+ *   用户消息   [data-chat-flow-kind="user"]
+ *   助手正文   [data-chat-flow-kind="assistant-step"][data-chat-group-part="response"]
+ *   思考块     [data-chat-flow-kind="assistant-step"][data-chat-group-part="reasoning"]
+ *   回合尾部   [data-chat-flow-kind="turn-tail"]（用量/用时/操作按钮）
+ *   过程节点   [data-chat-flow-kind="turn-process"]
  *
- * 注意：不要用 .lcKema_summaryText —— 那是会话列表的摘要，会话重载后为空。
+ * 旧版依赖的 EvIC1a_scroll / hWmORq_body / userRow 都是构建产物 hash，前端重建即失效，
+ * 已整体替换。
  */
 const { BasePage } = require('./BasePage');
 
 class ChatTranscriptPage extends BasePage {
-  /** 所有助手回复正文块（限定主消息滚动容器内——右侧栏「轨迹」面板会复用同类名） */
+  /** 所有助手回复正文块（reasoning 块不计入） */
   replyBodies() {
-    const scoped = this.page.locator('div[class*="EvIC1a_scroll"] div[class*="hWmORq_body"]');
-    return scoped;
+    return this.page.locator('[data-chat-flow-kind="assistant-step"][data-chat-group-part="response"]');
   }
 
   /** 最后一条助手回复 */
@@ -23,9 +25,9 @@ class ChatTranscriptPage extends BasePage {
     return this.replyBodies().last();
   }
 
-  /** 用户消息气泡 */
+  /** 用户消息节点（按文本过滤） */
   userBubble(text) {
-    return this.page.locator('div[class*="userRow"]').filter({ hasText: text });
+    return this.page.locator('[data-chat-flow-kind="user"]').filter({ hasText: text });
   }
 
   /** 等待出现至少一条非空回复 */

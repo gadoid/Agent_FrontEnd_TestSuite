@@ -40,15 +40,21 @@ test.describe('M1 安装/启动', () => {
     await expect(pages.sidebar.settingsButton()).toBeVisible();
     await expect(pages.sidebar.searchInput()).toBeVisible();
 
-    // 市场入口由部署级配置控制，非核心 UI：存在则验证，缺失仅记录
-    if (await pages.sidebar.marketButton().count()) {
-      await expect(pages.sidebar.marketButton()).toBeVisible();
+    // 「插件」入口是官方版侧栏的一级入口（社区版的「易链市场」已不存在）；缺失仅记录
+    if (await pages.sidebar.pluginsButton().count()) {
+      await expect(pages.sidebar.pluginsButton()).toBeVisible();
     } else {
-      test.info().annotations.push({ type: 'note', description: '市场入口在本部署中未启用（插件管理收敛至 设置 → 插件）' });
+      test.info().annotations.push({ type: 'note', description: '本部署未启用「插件」入口（插件管理收敛至 设置 → 内置插件）' });
     }
 
-    const version = await pages.sidebar.appVersion();
-    expect(version).toMatch(/\d+\.\d+/);
-    test.info().annotations.push({ type: 'note', description: `客户端版本: ${version}，mode=${mode}` });
+    // 版本号：官方版品牌按钮只剩 logo 无文本，改从 设置 → 通用设置 的「当前版本：」
+    const version = await pages.settings.versionText();
+    await pages.settings.close();
+    if (version) {
+      expect(version).toMatch(/\d+\.\d+/);
+      test.info().annotations.push({ type: 'note', description: `客户端版本: ${version}，mode=${mode}` });
+    } else {
+      test.info().annotations.push({ type: 'note', description: `未能从设置面板读到版本号，mode=${mode}` });
+    }
   });
 });

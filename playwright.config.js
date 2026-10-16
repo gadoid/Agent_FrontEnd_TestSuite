@@ -1,20 +1,20 @@
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
-// 机器相关配置（token/桌面端路径/服务地址）统一走 .env，命令行/CI 环境变量优先
+// 机器相关配置（桌面端 exe / 服务地址）统一走 .env，命令行环境变量优先
 require('./fixtures/env').loadEnv();
 
 /**
- * DSH 客户端（DeepSeek Harness / 外贸赋能中心）自动化测试
+ * 官方版 DeepSeek Harness 自动化测试
  *
- * 三个项目：
- *   1. setup          —— token → auth cookie → .auth/dsh-state.json（仅 web）
- *   2. web-chromium   —— 浏览器形态，复用登录态
- *   3. electron       —— 桌面形态，需设置 DSH_ELECTRON_PATH，否则整组跳过
+ * 项目拓扑（依赖图决定「两轮分离」，不靠约定）：
+ *   web-server ─┬→ setup ─→ web-chromium
+ *               └→ (teardown 项目：跑完关闭服务)
+ *   electron   —— 不声明依赖，因此 `--project=electron` 不会启动 web 服务
  *
  * 常用命令：
- *   npm run test:web        只跑 web
- *   npm run test:electron   跑桌面端（DSH_ELECTRON_PATH=<exe路径> npm run test:electron）
- *   npm test                全部
+ *   npm run test:web        只跑 web（自动起停 dsh web 服务）
+ *   npm run test:electron   只跑桌面端（须先彻底退出桌面应用：官方版有硬性单实例锁）
+ *   npm test                串行跑两轮（两端共享 ~/.dsh 业务数据，并行会互相干扰）
  */
 module.exports = defineConfig({
   testDir: './tests',
@@ -28,9 +28,8 @@ module.exports = defineConfig({
 
   expect: { timeout: 15_000 },
 
-  /* web 公共配置（electron 项目会覆盖 mode） */
   use: {
-    baseURL: process.env.DSH_URL || 'http://127.0.0.1:3080',
+    baseURL: process.env.E2E_URL || 'http://127.0.0.1:3080',
     // 应用 UI 文案随浏览器语言切换，固定中文保证选择器稳定
     locale: 'zh-CN',
     // 1280x720 下右侧栏/统计条会被响应式隐藏，固定桌面分辨率
@@ -43,17 +42,29 @@ module.exports = defineConfig({
   },
 
   projects: [
-    /* 1. 登录态准备：只跑 auth.setup.js */
+    /* 1. 起官方版 web 服务（`dsh web`）。teardown 项目保证即使中途失败也会收干净 */
+    {
+      name: 'web-server',
+      testMatch: /web-server\.setup\.js/,
+      teardown: 'web-server:teardown',
+    },
+    {
+      name: 'web-server:teardown',
+      testMatch: /web-server\.teardown\.js/,
+    },
+
+    /* 2. 登录态准备：只跑 auth.setup.js（离线构造 cookie，依赖服务已就绪） */
     {
       name: 'setup',
       testMatch: /auth\.setup\.js/,
+      dependencies: ['web-server'],
     },
 
-    /* 2. Web 形态 */
+    /* 3. Web 形态 */
     {
       name: 'web-chromium',
       dependencies: ['setup'],
-      testIgnore: /auth\.setup\.js/,
+      testIgnore: [/auth\.setup\.js/, /web-server\.(setup|teardown)\.js/],
       use: {
         ...devices['Desktop Chrome'],
         storageState: '.auth/dsh-state.json',
@@ -61,17 +72,16 @@ module.exports = defineConfig({
       },
     },
 
-    /* 3. Electron 桌面形态：未设置 DSH_ELECTRON_PATH 时用例自动 skip。
-     *    注意：须与 web 项目分开跑（electron 用例自管 runtime，3080 服务
-     *    已运行时桌面实例会依附现有服务并退出，Playwright 无法接管——
-     *    fixtures 检测到该情况会整组 skip 并说明原因）。 */
+    /* 4. Electron 桌面形态：未配置 E2E_DSH_EXE 时用例自动 skip。
+     *    官方版桌面 GUI 有硬性单实例锁（抢占失败即 app.quit()），且有独立的
+     *    内部 host 端口 19387，与 web 形态的 3080 互不冲突——但两端共享
+     *    ~/.dsh 业务数据（sessions/storages/workspace.json），仍应分轮串行跑。 */
     {
       name: 'electron',
-      testIgnore: /auth\.setup\.js/,
-      // 桌面客户端有单实例锁（requestSingleInstanceLock）：并行多实例后者直接退出，
-      // 必须 workers=1 串行；firstWindow 等待较慢，放宽单用例超时
+      testIgnore: [/auth\.setup\.js/, /web-server\.(setup|teardown)\.js/],
+      // 桌面客户端单实例锁：并行多实例后者直接退出，必须 workers=1 串行
       workers: 1,
-      timeout: 180_000,
+      timeout: 120_000,
       use: {
         mode: 'electron',
       },

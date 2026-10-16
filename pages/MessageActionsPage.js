@@ -16,6 +16,18 @@ class MessageActionsPage extends BasePage {
     return nth === -1 ? loc.last() : loc.nth(nth);
   }
 
+  /**
+   * 揭示操作按钮。
+   * 官方版回合操作按钮平时是隐藏的（布局中使用 data-actions-reveal），
+   * **必须先 hover 该回合**才会渲染/显示——桌面端尤其明显，不 hover 时点击等于空点。
+   */
+  async reveal(tail = this.tail()) {
+    await tail.scrollIntoViewIfNeeded().catch(() => {});
+    await tail.hover().catch(() => {});
+    await this.page.waitForTimeout(300);
+    return this;
+  }
+
   copyButton(tail = this.tail()) {
     return tail.getByRole('button', { name: '复制' });
   }
@@ -32,27 +44,58 @@ class MessageActionsPage extends BasePage {
     return tail.getByRole('button', { name: '在新对话中分支' });
   }
 
-  /** 点击复制并读取剪贴板内容（context 需授予 clipboard 权限，config 已配） */
+  /**
+   * 点击复制并读取剪贴板内容。
+   * web：走 navigator.clipboard（context 已授予 clipboard 权限）。
+   * 桌面：Electron 窗口里 navigator.clipboard 往往读不到内容，回退到**主进程的 clipboard 模块**
+   *      （Playwright 的 electronApp.evaluate 可拿到 Electron 内置模块）。
+   */
   async copyReplyText(tail = this.tail()) {
-    await this.copyButton(tail).click();
-    await this.page.waitForTimeout(600);
-    return this.page.evaluate(() => navigator.clipboard.readText());
+    await this.reveal(tail);
+    const btn = this.copyButton(tail);
+    await btn.click({ timeout: 10000 }).catch(() => btn.click({ force: true, timeout: 5000 }));
+    await this.page.waitForTimeout(800);
+    const fromPage = await this.page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+    if (fromPage && fromPage.trim()) return fromPage;
+    if (this.electronApp) {
+      const fromMain = await this.electronApp
+        .evaluate(({ clipboard }) => clipboard.readText())
+        .catch(() => '');
+      if (fromMain && fromMain.trim()) return fromMain;
+    }
+    return fromPage || '';
   }
 
-  /** 点赞；返回是否出现「感谢反馈」toast */
+  /**
+   * 点赞；返回是否观察到反馈。
+   *
+   * 官方版实测：点「好的回答」**直接弹出「提交反馈」表单**（body 出现
+   * 「提交反馈 / 任务结果 / 指令理解与遵循 / 产品功能与交互 …」），
+   * 不再是社区版那种「感谢你的反馈」轻提示。因此这里把「表单弹出」视为点赞反馈，
+   * 同时保留对 toast 文案的兼容识别。
+   */
   async like(tail = this.tail()) {
-    await this.likeButton(tail).click();
-    try {
-      await this.waitBodyContains('感谢', { timeout: 10000, interval: 1000 });
-      return true;
-    } catch {
-      return false;
+    await this.reveal(tail);
+    await this.likeButton(tail).click({ timeout: 10000 }).catch(() => this.likeButton(tail).click({ force: true }));
+    const deadline = Date.now() + 12000;
+    while (Date.now() < deadline) {
+      const body = await this.page.evaluate(() => document.body.innerText).catch(() => '');
+      if (/感谢|已记录|提交反馈/.test(body)) return true;
+      await this.page.waitForTimeout(300);
     }
+    return false;
+  }
+
+  /** 关闭弹出的反馈表单（点赞/点踩共用） */
+  async closeFeedbackForm() {
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.waitForTimeout(500);
   }
 
   /** 点踩，等待「提交反馈」表单弹出，返回 dialog locator */
   async openDislikeForm(tail = this.tail()) {
-    await this.dislikeButton(tail).click();
+    await this.reveal(tail);
+    await this.dislikeButton(tail).click({ timeout: 10000 }).catch(() => this.dislikeButton(tail).click({ force: true }));
     const dlg = this.page.locator('[role="dialog"]').last();
     await dlg.waitFor({ timeout: 10000 });
     return dlg;

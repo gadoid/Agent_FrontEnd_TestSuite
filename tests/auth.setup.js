@@ -1,77 +1,127 @@
 // @ts-check
 /**
- * Web 模式登录态准备（setup 项目）
+ * web 形态登录态准备（项目 `setup`）
  *
- * DSH web 端认证方式：GET /?token=<dsh web 启动时打印的 token>
- *   → 303 → 种下 HttpOnly cookie dsh-auth-*（有效期 30 天）
- * 这里把 cookie 存进 .auth/dsh-state.json，供 web-chromium 项目复用，
- * 避免每条用例都走一遍 token 流程。
+ * 官方版认证机制（逆向 asar + 实测复现）：
+ *   `?token=` 一次性链接 → 303 → 种下 HttpOnly cookie `dsh-auth-*`（30 天、SameSite=Strict）。
+ *   签名密钥**明文持久化**在 `<DSH_HOME>/.credentials.yaml`，且**跨重启稳定不轮换**
+ *   ——因此本套件直接离线构造 cookie，不再依赖「服务启动时打印的 token」。
  *
- * token 来源（优先级）：环境变量 DSH_TOKEN / 项目根 .env（见 .env.example）。
- * 注意：token 由 `dsh web` 每次启动时打印，服务重启后需更新；
- * cookie 有效期内（30 天）可直接复用 state，无需 token。
+ * 这解决了社区版时代反复卡住的老问题：token 每次服务重启都轮换，而 cookie 不行。
+ *
+ * 降级链（依次尝试，全部失败才报错）：
+ *   1. 离线构造（主路径，不需要服务、不需要 token）
+ *   2. 服务启动时捕获的 token（.runtime/web-server.json，由 web-server 项目写入）
+ *   3. E2E_TOKEN 显式给出
  */
-const { test: setup, expect, chromium } = require('@playwright/test');
+const { test: setup, request: apiRequest } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { ensureCleanRuntimeState, isServiceDown, servicePort } = require('../fixtures/runtime-state');
+const { loadEnv } = require('../fixtures/env');
+const { servicePort } = require('../fixtures/ports');
+const { writeStorageState, secretFingerprint, readSecret } = require('../fixtures/dsh-credentials');
+const { readServerInfo } = require('../fixtures/web-server');
+
+loadEnv();
 
 const STATE_FILE = path.join(__dirname, '..', '.auth', 'dsh-state.json');
+const AUTHORITY_FILE = path.join(__dirname, '..', '.auth', 'dsh-authority.json');
+const BASE_URL = `http://127.0.0.1:${servicePort()}`;
 
-setup('prepare web auth state (token → cookie)', async () => {
-  setup.setTimeout(90000);
-  const TOKEN = process.env.DSH_TOKEN || '';
-  const PORT = servicePort();
-
-  // 服务未运行时清理异常退出残留的 .dsh-desktop-runtime.json
-  // （存在该文件会让 dsh 下次启动误判上次异常退出、走恢复流程）
-  if (await isServiceDown(PORT)) {
-    await ensureCleanRuntimeState({ logger: (m) => console.log(`[runtime-state] ${m}`) });
-    throw new Error(`dsh web 服务未运行（127.0.0.1:${PORT} 无监听）。请先启动客户端，再重跑测试。`);
+/** 用已写出的 storageState 直接请求首页，验证登录态真的可用（不启浏览器） */
+async function verifyState(state) {
+  const ctx = await apiRequest.newContext({ baseURL: BASE_URL, storageState: state });
+  try {
+    const resp = await ctx.get('/');
+    return { ok: resp.status() === 200, status: resp.status() };
+  } catch (e) {
+    return { ok: false, status: -1, error: e.message };
+  } finally {
+    await ctx.dispose();
   }
+}
 
-  /* 1. 已有 state 且 cookie 仍有效（30 天）→ 直接复用，无需 token。
-   *    token 由 `dsh web` 每次启动轮换，常过期；cookie 才是长效登录态。 */
-  if (fs.existsSync(STATE_FILE)) {
-    const b = await chromium.launch();
-    const ctx = await b.newContext({ locale: 'zh-CN', storageState: STATE_FILE });
-    const p = await ctx.newPage();
-    const resp = await p.goto('/', { waitUntil: 'domcontentloaded' }).catch(() => null);
-    const uiReady = resp && resp.status() < 400
-      && await p.getByRole('button', { name: '新建会话' }).last()
-          .waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
-    await b.close();
-    if (uiReady) {
-      setup.info().annotations.push({ type: 'note', description: '复用现有登录态（cookie 仍有效）' });
+/** 从侧车读已记录的 authority（端口/主机变了就该无条件重建） */
+function readAuthoritySidecar() {
+  try { return JSON.parse(fs.readFileSync(AUTHORITY_FILE, 'utf8')); } catch { return null; }
+}
+
+setup('prepare web auth state (offline cookie)', async () => {
+  setup.setTimeout(90000);
+  const expectedAuthority = `127.0.0.1:${servicePort()}`;
+
+  // 0. 侧车 authority 一致且 state 仍在 → 直接验证复用，不重建
+  const sidecar = readAuthoritySidecar();
+  if (sidecar && sidecar.authority === expectedAuthority && fs.existsSync(STATE_FILE)) {
+    const existing = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    const v = await verifyState(existing);
+    if (v.ok) {
+      setup.info().annotations.push({ type: 'note', description: `复用现有登录态（authority=${expectedAuthority}）` });
       return;
     }
+    setup.info().annotations.push({ type: 'note', description: `现有登录态不可用（HTTP ${v.status}），重建` });
   }
 
-  /* 2. token 流程：带 token 访问 → 303 → cookie 种下 → 落地应用首页 */
-  if (!TOKEN) {
-    throw new Error([
-      '缺少登录 token：DSH_TOKEN 未设置，且 .auth/dsh-state.json 不存在或已失效。',
-      '请在项目根 .env（从 .env.example 复制）或环境变量中设置 DSH_TOKEN=',
-      '（token 见 `dsh web` / 客户端启动时打印的 /?token=xxx）。',
-    ].join('\n'));
+  // 1. 离线构造
+  const failures = [];
+  try {
+    const secret = readSecret();
+    const { state, authority } = writeStorageState({
+      url: BASE_URL, statePath: STATE_FILE, authorityPath: AUTHORITY_FILE, secret,
+    });
+    const v = await verifyState(state);
+    if (v.ok) {
+      setup.info().annotations.push({
+        type: 'note',
+        description: `离线构造登录态成功（authority=${authority}，密钥指纹=${secretFingerprint(secret)}）`,
+      });
+      return;
+    }
+    failures.push(`离线构造的 cookie 未通过验证（HTTP ${v.status}）`);
+  } catch (e) {
+    failures.push(`离线构造失败: ${e.message}`);
   }
 
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ locale: 'zh-CN' });
-  const page = await context.newPage();
+  // 2. 服务启动时捕获的 token
+  const tokenFromServer = (readServerInfo() || {}).token;
+  const token = tokenFromServer || process.env.E2E_TOKEN || '';
+  if (token) {
+    const source = tokenFromServer ? '服务启动输出' : 'E2E_TOKEN';
+    const ctx = await apiRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const resp = await ctx.get(`/?token=${token}`);
+      if (resp.status() >= 400) {
+        failures.push(`${source} 的 token 登录失败（HTTP ${resp.status()}）`);
+      } else {
+        // 让 Playwright 从重定向链里吸收 cookie 后落盘
+        await ctx.storageState({ path: STATE_FILE });
+        fs.writeFileSync(AUTHORITY_FILE, JSON.stringify({
+          authority: expectedAuthority, generatedAt: new Date().toISOString(), source,
+        }, null, 2));
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        const v = await verifyState(state);
+        if (v.ok) {
+          setup.info().annotations.push({ type: 'note', description: `token 登录态就绪（来源: ${source}）` });
+          return;
+        }
+        failures.push(`token 流程拿到的 cookie 未通过验证（HTTP ${v.status}）`);
+      }
+    } catch (e) {
+      failures.push(`${source} 的 token 流程异常: ${e.message}`);
+    } finally {
+      await ctx.dispose();
+    }
+  } else {
+    failures.push('没有可用的 token（.runtime/web-server.json 与 E2E_TOKEN 均为空）');
+  }
 
-  const resp = await page.goto(`/?token=${TOKEN}`, { waitUntil: 'domcontentloaded' });
-  expect(resp.status(), 'token 登录应成功（303/200）').toBeLessThan(400);
-
-  // 验证确实拿到了 dsh-auth cookie
-  const cookies = await context.cookies();
-  const authCookie = cookies.find(c => c.name.startsWith('dsh-auth-'));
-  expect(authCookie, '应种下 dsh-auth-* cookie').toBeTruthy();
-
-  // 验证应用 UI 真正渲染
-  await page.getByRole('button', { name: '新建会话' }).last().waitFor({ timeout: 30000 });
-
-  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-  await context.storageState({ path: STATE_FILE });
-  await browser.close();
+  throw new Error([
+    '无法建立 web 登录态，依次尝试均失败：',
+    ...failures.map((f, i) => `  ${i + 1}) ${f}`),
+    '',
+    '排查建议：',
+    `  · 服务是否在跑：${BASE_URL}`,
+    '  · 凭据文件是否可读：<DSH_HOME>/.credentials.yaml（记录 client-connection/browser-session 的 secret）',
+    '  · cookie 按端口区分，E2E_URL 的端口必须与 E2E_WEB_PORT 一致',
+  ].join('\n'));
 });

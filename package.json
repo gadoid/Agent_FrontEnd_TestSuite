@@ -1,0 +1,17 @@
+{
+  "name": "agent_frontend_testsuite",
+  "version": "1.0.0",
+  "private": true,
+  "license": "ISC",
+  "description": "DeepSeek Harness（官方版 DSH 客户端）Playwright 双端自动化测试套件",
+  "scripts": {
+    "test": "playwright test --project=web-chromium && playwright test --project=electron",
+    "test:web": "playwright test --project=web-chromium",
+    "test:web:headed": "playwright test --project=web-chromium --headed",
+    "test:electron": "playwright test --project=electron",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  }
+}

@@ -1,8 +1,36 @@
-# DSH 客户端（外贸赋能中心 / DeepSeek Harness）测试用例设计
+# DSH 客户端（官方版 DeepSeek Harness）测试用例设计
 
-> 目标服务：`http://127.0.0.1:3080`（`dsh web` 启动，token 认证）
-> 覆盖形态：**Web**（chromium）与 **Electron 桌面端**（`DSH_ELECTRON_PATH` 指定 exe）
+> 被测对象：**官方版 DeepSeek Harness v0.2.0-rc.2**（`E2E_DSH_EXE` 指定 exe）
+> 目标服务：`http://127.0.0.1:3080`（`dsh web` 启动；**登录态由签名密钥离线构造**，不再依赖 token）
+> 覆盖形态：**Web**（chromium）与 **Electron 桌面端**（`dsh-app://app/` 窗口）
 > 命名约定：`M<模块>-<序号>`；`[web]` 仅 web、`[electron]` 仅桌面、`[双端]` 两种形态都跑
+
+> ⚠️ **本文档已随「官方版迁移」更新**。历史小节里仍可能残留社区版（Eline AI Desktop）
+> 时期的探测记录，凡涉及「易链市场 / 外贸赋能中心 / 审单工作台 / 选择工作区按钮 /
+> `DSH_ELECTRON_PATH`」的描述均**已失效**，以「官方版迁移说明」一节为准。
+
+---
+
+## 官方版迁移说明（2026-10）
+
+社区版 `Eline AI Desktop` v0.5.14 → 官方版 `DeepSeek Harness` v0.2.0-rc.2。机制差异与本套件的应对：
+
+| 维度 | 社区版 | 官方版 | 套件应对 |
+|---|---|---|---|
+| 桌面窗口 | 加载 `http://127.0.0.1:3080` | 加载 `dsh-app://app/`，后端固定 **19387** | 夹具按 URL 前缀挑主窗口 |
+| web 服务 | 由桌面实例托管，与桌面端**互斥** | `dsh web` 独立，默认 3080，**可与桌面端共存** | 新增 `web-server` 项目自管启停 |
+| runtime 状态文件 | `~/.dsh/.dsh-desktop-runtime.json` | **完全没有** | `fixtures/runtime-state.js` 删除，改为 `fixtures/ports.js` |
+| 登录态 | token→cookie，token 每次重启轮换 | 同机制，但签名密钥持久化在 `.credentials.yaml` | `fixtures/dsh-credentials.js` 离线构造 cookie |
+| 单实例锁 | 有 | 有且**硬性**（抢不到即 quit） | 用 19387 端口探测，命中即 skip |
+| `.env` | 任意键名 | 读 cwd 的 `.env`，`DSH_/XDG_/DYLD_/BASH_FUNC_` 前缀**直接报错退出** | 键名统一 `E2E_*` + `assertEnvFileSafe` 守卫 + 中性 cwd |
+| 品牌/入口 | 外贸赋能中心 / 易链市场 / 审单工作台 | `deepseek HARNESS` / 侧栏「插件」页 | 相关用例改写或删除 |
+| 工作区 | 侧栏常驻「选择工作区」按钮 + 菜单 | **工作区树** + 「在 X 中新建会话」 | M9 整组重写 |
+| 模式 | 侧栏模式按钮（含「外贸专家」） | 首页 hero 的 **Agent 预设 chip**（标准/PTC/极简/创造） | 新增 `pages/AgentPresetPage.js` |
+| 选择器 | 大量构建 hash 类名 | 广泛提供 `data-slot` / `data-row-key` / `data-chat-flow-kind` | 全面改挂语义钩子 |
+
+**环境前置**：`~/.dsh/profiles/*/node_modules` 若是社区版时期的 0.1.5-rc.1 包集，会遮蔽运行时自带的
+0.2.0-rc.2 包，导致 web 前端 45 个插件条目激活失败（表现为「Failed to load plugins」）。处理：
+将旧 `node_modules` 改名让运行时回落到自带包。
 
 ---
 

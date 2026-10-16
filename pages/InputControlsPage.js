@@ -1,28 +1,28 @@
 // @ts-check
 /**
- * 输入区周边控件：指令面板 / 模型选择器 / 访问模式
+ * 输入区周边控件：指令/文件入口 / 模型选择器 / 访问模式
  *
- * 实测 DOM：
- *   指令按钮     button[aria-label="指令"]（composer 左下）
- *   模型选择器   button[aria-label^="选择模型"]（显示当前模型名，如 deepseek-v4-pro）
- *   访问模式     button[aria-label^="访问模式"]（显示当前模式，如 工作区内修改）
- *   输入 "/" 也会唤起指令面板
+ * 官方版实测（2026-10 真机探测）：
+ *   文件/指令入口  button[aria-label="添加文件或调用指令"][aria-haspopup="listbox"]
+ *                  —— 社区版独立的「指令」按钮已不存在，指令改由该入口的
+ *                  listbox 承载，另可用 `/` 快捷键唤起
+ *   模型选择器     button[aria-label^="选择模型"]（显示 "eline-relay/deepseek-v4-pro" 等）
+ *                  菜单容器 aria-label = 「模型与推理等级」（含推理等级行，解析需排除）
+ *   访问模式       button[aria-label^="访问模式"]（显示 "工作区内修改" 等）
  */
 const { BasePage } = require('./BasePage');
 
 class InputControlsPage extends BasePage {
-  /* ---------- 指令面板 ---------- */
+  /* ---------- 指令 / 文件入口 ---------- */
   commandsButton() {
-    return this.page.getByRole('button', { name: '指令' });
+    return this.page.getByRole('button', { name: '添加文件或调用指令' });
   }
 
-  /** 打开指令面板（点「指令」按钮），等待弹出选项 */
+  /** 打开指令/文件面板，返回面板内的选项 locator */
   async openCommandPalette() {
     await this.commandsButton().click();
     await this.page.waitForTimeout(1000);
-    return this.page.locator('[role="option"], [role="menuitem"]').filter({
-      has: this.page.locator(':scope'),
-    });
+    return this.page.locator('[role="option"], [role="menuitem"], [role="listbox"] [role="option"]');
   }
 
   /** 面板中可见的指令项文本 */
@@ -46,18 +46,19 @@ class InputControlsPage extends BasePage {
     return this.page.getByRole('button', { name: /^选择模型/ });
   }
 
-  /** 当前模型名（按钮可见文本） */
+  /** 当前模型名。
+   *  实测按钮文本是两行：「模型名 / 推理等级」（如 "DeepSeek-V41-Flash" + "High"），只取首行，
+   *  否则与菜单里的模型名比对会因多出的推理等级而对不上。 */
   async currentModel() {
-    return (await this.modelButton().innerText()).trim();
+    const raw = await this.modelButton().innerText();
+    return raw.trim().split(/\r?\n/)[0].trim();
   }
 
-  /** 所有可见菜单弹层的文本行（排除 menuAnchor 锚点容器） */
+  /** 所有可见弹层的文本行（只用 role 锚定；社区版依赖的 *_menu hash 类名已失效） */
   async visibleMenuLines() {
     return this.page.evaluate(() => {
       const lines = [];
-      document.querySelectorAll('[role="menu"], [role="listbox"], [class*="_menu"], [class*="popover"]').forEach(el => {
-        const cls = (el.className || '').toString();
-        if (cls.includes('menuAnchor')) return; // 锚点容器（如「标准模式」按钮包装），非弹层
+      document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]').forEach(el => {
         if (!(el.offsetWidth || el.offsetHeight)) return; // 不可见
         (el.innerText || '').split('\n').forEach(l => lines.push(l.trim()));
       });
@@ -65,14 +66,18 @@ class InputControlsPage extends BasePage {
     });
   }
 
-  /** 打开模型菜单，返回弹层内的模型名行（实测弹层文本：模型\ndeepseek-v4-pro） */
+  /**
+   * 打开模型菜单，返回弹层内的模型名行。
+   * 官方版菜单是「模型与推理等级」，含推理等级行（如 High / Medium / Low）与搜索框，
+   * 因此过滤条件同时要求：像模型标识（含 - 或 / 且含数字），排除纯中文与推理等级词。
+   */
   async openModelMenu() {
     await this.modelButton().click();
     await this.page.waitForTimeout(1200);
     const lines = await this.visibleMenuLines();
-    // 模型名行：纯 [\w.-] 计符且含数字（如 deepseek-v4-pro / glm-4.7）；
-    // 排除表头「模型」等纯中文行。注意不能用 `-\d`（deepseek-v4 的横杠后是字母）
-    return lines.filter(s => /^[\w][\w.-]*$/.test(s) && /\d/.test(s));
+    const NOISE = /^(High|Medium|Low|Auto|自动|高|中|低|搜索模型|模型与推理等级|DeepSeek 账号)$/i;
+    return lines.filter(s =>
+      /^[\w][\w./-]*$/.test(s) && /\d/.test(s) && !NOISE.test(s));
   }
 
   closeModelMenu() {

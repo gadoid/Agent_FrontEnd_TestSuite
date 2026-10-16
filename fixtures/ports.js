@@ -1,0 +1,81 @@
+// @ts-check
+/**
+ * 端口探测工具
+ *
+ * 历史：这里原本是 fixtures/runtime-state.js，管理社区版的
+ * `~/.dsh/.dsh-desktop-runtime.json`（「上次异常退出」残留清理）。
+ * **官方版完全没有该文件**（asar 内 childPid/desktopPid/processIdentity 均 0 命中），
+ * 那套机制对官方版是死代码，已删除；只保留端口相关的通用能力。
+ */
+const net = require('net');
+const { loadEnv, readEnv } = require('./env');
+
+loadEnv();
+
+/** 官方版桌面 GUI 内部 host 的监听端口（asar 内硬编码，不可配置）。
+ *  用它而不是「按进程名找」来判定桌面实例是否在跑：既能覆盖 GUI 在跑，
+ *  也能覆盖「GUI 已退出但 detached 的子 host 还活着」，且不会误伤用户手动开的实例。 */
+const DESKTOP_HOST_PORT = 19387;
+
+/** 从 E2E_URL 派生服务端口（迁移到非默认端口部署时无需改代码） */
+function servicePort() {
+  try {
+    return Number(new URL(process.env.E2E_URL || 'http://127.0.0.1:3080').port) || 3080;
+  } catch {
+    return 3080;
+  }
+}
+
+/** 服务主机（默认 127.0.0.1） */
+function serviceHost() {
+  try {
+    return new URL(process.env.E2E_URL || 'http://127.0.0.1:3080').hostname;
+  } catch {
+    return '127.0.0.1';
+  }
+}
+
+/** 探测端口是否被占用（能绑上 = 空闲） */
+function portInUse(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(true));   // 绑定失败 → 端口被占
+    srv.once('listening', () => srv.close(() => resolve(false)));
+    srv.listen(port, host);
+  });
+}
+
+/** 轮询等待端口开始监听（服务就绪的兜底信号） */
+async function waitForPortInUse(port, { host = '127.0.0.1', timeout = 90000, interval = 500 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await portInUse(port, host)) return true;
+    await new Promise(r => setTimeout(r, interval));
+  }
+  return false;
+}
+
+/** 轮询等待端口释放（关闭服务后确认） */
+async function waitForPortFree(port, { host = '127.0.0.1', timeout = 15000, interval = 300 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (!(await portInUse(port, host))) return true;
+    await new Promise(r => setTimeout(r, interval));
+  }
+  return false;
+}
+
+/** 桌面端可执行文件路径（E2E_DSH_EXE 优先，兼容旧的进程环境变量名） */
+function desktopExe() {
+  return readEnv('E2E_DSH_EXE', ['DSH_ELECTRON_PATH']);
+}
+
+module.exports = {
+  DESKTOP_HOST_PORT,
+  servicePort,
+  serviceHost,
+  portInUse,
+  waitForPortInUse,
+  waitForPortFree,
+  desktopExe,
+};
