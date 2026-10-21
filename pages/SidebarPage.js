@@ -1,19 +1,21 @@
 // @ts-check
 /**
- * 侧边栏组件：品牌 / 新建会话 / 插件 / 搜索 / 工作区树 / 设置
+ * 侧边栏组件：品牌 / 折叠 / 新建会话 / 插件 / 搜索 / 视图选项 / 工作区树 / 设置
  *
- * 官方版实测（2026-10 真机探测）：
- *   品牌位按钮  button[aria-label="新建会话"]（**已无文本**，只剩 logo，取 first()）
- *   新建会话    button[aria-label="新建会话"]（class *_newSession，取 last()）
- *   插件入口    button[aria-label="插件"]（→ 侧栏插件页；社区版的「易链市场」已不存在）
+ * eline 实测（2026-10，eline.exe v0.2.0-rc.2 定制构建，与官方 DSH 同代码基座）：
+ *   品牌位按钮  button[aria-label="新建会话"]（**已无文本**，只剩 logo，取 first()）；
+ *              侧栏折叠后同一位置变为 button[aria-label="打开侧边栏"]
+ *   折叠按钮    button[aria-label="收起侧边栏"]（侧栏头部右侧）
+ *   新建会话    button[aria-label="新建会话"]（带快捷键提示 Ctrl+Alt+N，取 last()）
+ *   插件入口    button[aria-label="插件"]（→ 侧栏插件页）
  *   搜索        button[aria-label="搜索会话"] + input[placeholder="搜索会话名称"]
- *   视图选项    button[aria-label="视图选项"]（分组/排序/筛选）
+ *   视图选项    button[aria-label="视图选项"]（分组：按工作区/按工作区树/单列表 等）
  *   添加工作区  button[aria-label="添加工作区"]（注意：无省略号）
  *   工作区行    div[role="treeitem"][data-row-key="workspace:<uuid>"]
  *   会话行      div[role="treeitem"][data-row-key="session:<uuid>"]，当前会话带 aria-selected="true"
+ *   设置入口    web 形态 button[aria-label="设置"]；桌面形态「账号菜单」→ 菜单里的「设置」
  *
- * 会话/工作区树已从「侧栏自绘」搬进 @deepseek-ai/dsh-client-ui-workspace，
- * data-row-key 是最稳的钩子（比构建 hash 类名可靠）。
+ * data-row-key 是最稳的树钩子（比构建 hash 类名可靠）。
  */
 const { BasePage } = require('./BasePage');
 
@@ -43,6 +45,79 @@ class SidebarPage extends BasePage {
   /** 搜索会话输入框（官方版 placeholder 为「搜索会话名称」） */
   searchInput() {
     return this.page.getByPlaceholder('搜索会话名称');
+  }
+
+  /* ---------- 左上角 折叠/打开 会话页（eline 实测） ----------
+   * 侧栏头部按钮 button[aria-label="收起侧边栏"]；
+   * 折叠后整个侧栏收起，品牌位变为 button[aria-label="打开侧边栏"]（文本只剩 logo）。 */
+  collapseSidebarButton() {
+    return this.page.getByRole('button', { name: '收起侧边栏' });
+  }
+
+  expandSidebarButton() {
+    return this.page.getByRole('button', { name: '打开侧边栏' });
+  }
+
+  /** 折叠左侧会话页（侧栏） */
+  async collapseSidebar() {
+    await this.collapseSidebarButton().click();
+    await this.expandSidebarButton().waitFor({ timeout: 10000 }).catch(() => {});
+    await this.page.waitForTimeout(500);
+    return this;
+  }
+
+  /** 重新打开左侧会话页 */
+  async expandSidebar() {
+    await this.expandSidebarButton().click();
+    await this.newSessionButton().waitFor({ timeout: 10000 }).catch(() => {});
+    await this.page.waitForTimeout(500);
+    return this;
+  }
+
+  /** 侧栏是否处于折叠态 */
+  async sidebarCollapsed() {
+    return this.expandSidebarButton().isVisible().catch(() => false);
+  }
+
+  /* ---------- 视图选项（分组/排序/筛选） ----------
+   * 实测菜单项：按工作区 / 按工作区树 / 单列表 / 手动排序 / 最近更新 /
+   *             隐藏已归档 / 全部对话（显示已归档） / 仅显示已归档 */
+  async openViewOptionsMenu() {
+    await this.viewOptionsButton().click();
+    await this.page.locator('[role="menuitem"]').first().waitFor({ timeout: 10000 });
+    await this.page.waitForTimeout(400);
+    return this.page.locator('[role="menuitem"]').allInnerTexts();
+  }
+
+  /** 点击视图选项菜单里的某一项（如「按工作区树」）并等树重渲染 */
+  async pickViewOption(name) {
+    await this.page.locator('[role="menuitem"]').filter({ hasText: name }).first().click();
+    await this.page.waitForTimeout(800);
+    return this;
+  }
+
+  /* ---------- 会话切换 ----------
+   * 会话树行 div[role="treeitem"][data-row-key^="session:"]，
+   * 当前会话行带 aria-selected="true"。点击行即切换会话。 */
+
+  /** 按序号取会话树行（0 起） */
+  sessionRow(index) {
+    return this.sessionRows().nth(index);
+  }
+
+  /** 点击树中第 index 个会话行完成切换 */
+  async switchToSession(index) {
+    const row = this.sessionRow(index);
+    await row.waitFor({ state: 'visible', timeout: 15000 });
+    await row.click();
+    await this.page.waitForTimeout(1200);
+    return this;
+  }
+
+  /** 当前选中的会话行文本（aria-selected="true"） */
+  async selectedSessionText() {
+    const sel = this.page.locator('div[role="treeitem"][data-row-key^="session:"][aria-selected="true"]');
+    return (await sel.count()) ? (await sel.first().innerText()).trim() : '';
   }
 
   /** 搜索按钮（点击展开搜索框） */

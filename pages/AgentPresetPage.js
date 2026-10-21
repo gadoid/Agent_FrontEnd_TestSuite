@@ -1,23 +1,26 @@
 // @ts-check
 /**
- * Agent 预设（社区版叫「模式」）选择器
+ * Agent 预设（eline 叫「模式」）选择器
  *
- * 官方版实测（2026-10 真机探测）：模式选择从「侧栏无 aria-label 的 hasPopup=menu 按钮」
- * （旧 WorkspacePage.modeButton 的假设，在前端重建后已不成立）迁移到
- * **首页 hero 区**的 Agent 预设 chip：
+ * eline 实测（2026-10，eline.exe v0.2.0-rc.2）：首页 hero 区的 Agent 预设 chip：
  *   [data-slot="conversation.hero.agentPreset"] button[aria-haspopup="menu"]
- *   按钮文本即当前预设名（如「标准模式」）
+ *   按钮无 aria-label，靠 title="选择新任务使用的 Agent 预设" 与文本定位（双保险）。
  *
- * 实测菜单项（本部署）：标准模式 / PTC 模式 / 极简模式 / 创造模式
- * ——社区版的「外贸专家」在官方版全库 0 命中，已移除。
- * 菜单项文本带描述行（多行），匹配时取首行。
+ * 实测菜单项（本部署）：外贸专家模式 / 标准模式 / PTC 模式 / 极简模式 / 创造模式
+ * ——「外贸专家模式」为 eline 特有（部署 persona，官方版没有）；菜单项文本带描述行，匹配取首行。
  */
 const { BasePage } = require('./BasePage');
+const { AGENT_MODES } = require('../fixtures/test-data/ui-catalog');
+
+/** eline 部署实测存在的模式（数据源：fixtures/test-data/ui-catalog.js） */
+const MODES = AGENT_MODES;
 
 class AgentPresetPage extends BasePage {
   /** Agent 预设 chip（只在首页 hero 态渲染；会话进行中不显示） */
   button() {
-    return this.page.locator('[data-slot="conversation.hero.agentPreset"] button[aria-haspopup="menu"]').first();
+    return this.page
+      .locator('[data-slot="conversation.hero.agentPreset"] button[aria-haspopup="menu"], button[title*="Agent 预设"]')
+      .first();
   }
 
   /** 当前预设名 */
@@ -46,4 +49,4 @@ class AgentPresetPage extends BasePage {
   }
 }
 
-module.exports = { AgentPresetPage };
+module.exports = { AgentPresetPage, AGENT_MODES: MODES };

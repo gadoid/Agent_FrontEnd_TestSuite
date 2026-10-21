@@ -1,15 +1,17 @@
 // @ts-check
 /**
- * 双模式测试夹具：同一套 spec 同时支持 web 与 electron（被测应用 = 官方版 DeepSeek Harness）
+ * 双模式测试夹具：同一套 spec 同时支持 web 与 electron（被测应用 = ElineAI 桌面客户端）
  *
- * - web 模式（默认）：chromium + storageState（登录态由 tests/auth.setup.js 离线构造）
- * - electron 模式：playwright._electron 启动官方版桌面客户端，取 dsh-app:// 主窗口作为 page
+ * - web 模式（默认）：chromium + storageState（登录态由 tests/auth.setup.js 准备）
+ * - electron 模式：playwright._electron 启动 eline 桌面客户端，取 dsh-app:// 主窗口作为 page
  *
- * 官方版与社区版的关键差别（决定了下面这些实现）：
- *   · 桌面 GUI 硬编码内部 host 端口 19387，窗口加载 `dsh-app://app/`（不是 http://127.0.0.1:3080）
- *   · 单实例锁是硬性的：抢不到锁的实例直接 app.quit()，Playwright 拿不到窗口
- *   · **没有任何 runtime 状态文件**（社区版那套「异常退出残留清理」是死代码，已删）
- *   · 启动会读当前工作目录的 .env，命中 DSH_ 前缀即抛错退出 → 必须给中性 cwd
+ * ElineAI（D:\ElineAI\eline.exe）实测（2026-10）：
+ *   · 它是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构建（appId com.eline.desktop，
+ *     登录策略 feishu-test，LLM 走「易链 AI」中转），桌面窗口同样加载 dsh-app://app/，
+ *     内部 host 同样固定 19387，单实例锁同样硬性。
+ *   · **cookie 离线构造不可用**：签名密钥未持久化到 .credentials.yaml（与官方版不同），
+ *     web 登录态走 token 流程（`dsh web` 启动输出 ?token=…，web-server 夹具自动捕获）。
+ *   · 启动会读当前工作目录的 .env，命中 DSH_ 前缀即抛错退出 → 必须给中性 cwd。
  *
  * 用法（spec 内）：
  *   const { test, expect } = require('../fixtures/app.fixtures');
@@ -29,9 +31,10 @@ loadEnv();
 /** 桌面客户端常见安装位置（E2E_DSH_EXE 未设置时自动探测） */
 const ELECTRON_PROBE_PATHS = [
   readEnv('E2E_DSH_EXE', ['DSH_ELECTRON_PATH']),
+  'D:/ElineAI/eline.exe',
+  `${process.env.LOCALAPPDATA || ''}/Programs/eline/eline.exe`,
+  `${process.env.LOCALAPPDATA || ''}/Programs/ElineAI/eline.exe`,
   `${process.env.LOCALAPPDATA || ''}/Programs/DeepSeek Harness/DeepSeek Harness.exe`,
-  `${process.env.LOCALAPPDATA || ''}/Programs/deepseek-harness/DeepSeek Harness.exe`,
-  `${process.env.PROGRAMFILES || 'C:/Program Files'}/DeepSeek Harness/DeepSeek Harness.exe`,
 ].filter(Boolean);
 
 /** 探测第一个真实存在的桌面客户端 exe（env 指定的路径优先） */
@@ -92,11 +95,11 @@ const test = base.extend({
   electronApp: [async ({ mode }, use, testInfo) => {
     if (mode !== 'electron' || !ELECTRON_PATH) return use(undefined);
 
-    // 官方版单实例锁是硬性的：已有实例在跑时，新进程会直接 quit()，Playwright 接不到窗口。
+    // 官方/eline 单实例锁是硬性的：已有实例在跑时，新进程会直接 quit()，Playwright 接不到窗口。
     // 用 19387（桌面 host 的硬编码端口）判定，而不是按进程名找——后者会误伤用户手动开的实例。
     if (await portInUse(DESKTOP_HOST_PORT)) {
       testInfo.skip(true, `检测到桌面实例已在运行（127.0.0.1:${DESKTOP_HOST_PORT} 被占用）。`
-        + '官方版有硬性单实例锁，请先彻底退出 DeepSeek Harness 桌面应用再跑 electron 项目。');
+        + 'eline 有硬性单实例锁，请先彻底退出 ElineAI 桌面应用再跑 electron 项目。');
     }
 
     fs.mkdirSync(RUNTIME_CWD, { recursive: true });
@@ -137,6 +140,9 @@ const test = base.extend({
       target = await waitForAppWindow(electronApp);
       // 桌面端内置认证；等 UI 就绪（新建会话按钮在首页与会话页都存在）
       await target.getByRole('button', { name: '新建会话' }).last().waitFor({ timeout: 30000 }).catch(() => {});
+      // eline 首载会弹「预览版说明」遮罩，不关会拦住所有点击
+      const cont = target.getByRole('button', { name: '继续', exact: true }).first();
+      if (await cont.isVisible().catch(() => false)) await cont.click({ timeout: 5000 }).catch(() => {});
     }
 
     await use(target);

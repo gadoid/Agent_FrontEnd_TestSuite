@@ -1,22 +1,19 @@
 // @ts-check
 /**
- * 工作区组件（侧栏工作区树 + 工作区操作 + 会话归属）
+ * 工作区组件（侧栏工作区树 + 选择工作区 + 工作区操作 + 会话归属）
  *
- * 官方版实测（2026-10 真机探测）——工作区模型与社区版**根本不同**：
- *   社区版：侧栏底部有个常驻「选择工作区」按钮，点开菜单选工作区（=当前工作区）
- *   官方版：**没有该按钮**。侧栏是一棵两段式树，工作区行下挂会话行：
- *     工作区行  div[role="treeitem"][data-row-key="workspace:<uuid>"]（aria-expanded 表示展开/折叠）
- *     会话行    div[role="treeitem"][data-row-key="session:<uuid>"]（aria-selected 表示当前会话）
- *   点击工作区行只是**展开/折叠**，不是「切为当前工作区」——树里根本没有「当前工作区」标记。
- *   `选择工作区` 这个 aria-label 只存在于空态 hero 的工作区 chip 上，且该 chip 在已选工作区时
- *   不是按钮、异步渲染，读不到稳定文本。
+ * eline 实测（2026-10，eline.exe v0.2.0-rc.2 定制构建）——与官方 DSH 同代码基座，
+ * 但 eline 在 hero 区恢复了**常驻「选择工作区」按钮**（官方版已移除）：
+ *   button[aria-label="选择工作区"]（文本=当前工作区名，aria-haspopup=menu）
+ *   菜单项 = 工作区列表 + 「添加工作区…」
  *
- * 因此本组件**不再提供"读当前工作区"**，改为依赖三个稳定得多的信号：
- *   1. 树行文本（工作区是否存在 / 标题是什么）
- *   2. button[aria-label="在“<title>”中新建会话"]（官方版新增，直接把会话建在指定工作区）
- *   3. button[aria-label="工作区“<title>”的操作"]（重命名 / 删除，逐字保留）
+ * 工作区树不变：
+ *   工作区行  div[role="treeitem"][data-row-key="workspace:<uuid>"]
+ *   会话行    div[role="treeitem"][data-row-key="session:<uuid>"]（aria-selected 标记当前会话）
+ *   稳定信号：树行文本 / button[aria-label="在“<title>”中新建会话"] /
+ *            button[aria-label="工作区“<title>”的操作"]（重命名/删除）
  *
- * Agent 预设（模式）已迁出到 pages/AgentPresetPage.js。
+ * 「添加工作区」的 UI 会拉起 OS 目录选择器，自动化走 fixtures/workspace-api 的同源 RPC。
  */
 const { BasePage } = require('./BasePage');
 
@@ -87,6 +84,39 @@ class WorkspacePage extends BasePage {
   /* ---------- 工作区操作菜单（重命名 / 删除） ---------- */
   opsButton(title) {
     return this.page.getByRole('button', { name: `工作区“${title}”的操作` });
+  }
+
+  /* ---------- 选择工作区（eline 恢复了常驻选择器，官方版没有） ----------
+   * hero 区 button[aria-label="选择工作区"]（文本=当前工作区名），
+   * 菜单项为全部工作区 + 「添加工作区…」。 */
+  workspacePickerButton() {
+    return this.page.getByRole('button', { name: '选择工作区' });
+  }
+
+  /** 当前选中的工作区名（选择器按钮文本） */
+  async currentWorkspace() {
+    const btn = this.workspacePickerButton();
+    if (!(await btn.count())) return '';
+    return (await btn.first().innerText()).trim();
+  }
+
+  /** 打开选择工作区菜单，返回菜单项文本（含「添加工作区…」） */
+  async openPickerMenu() {
+    await this.workspacePickerButton().click();
+    await this.page.locator('[role="menuitem"]').first().waitFor({ timeout: 10000 });
+    await this.page.waitForTimeout(400);
+    return this.page.locator('[role="menuitem"]').allInnerTexts();
+  }
+
+  /** 在选择工作区菜单里选中指定工作区 */
+  async pickWorkspace(title) {
+    await this.page.locator('[role="menuitem"]').filter({ hasText: title }).first().click();
+    await this.page.waitForTimeout(800);
+    return this;
+  }
+
+  closePickerMenu() {
+    return this.page.keyboard.press('Escape');
   }
 
   async openOpsMenu(title) {

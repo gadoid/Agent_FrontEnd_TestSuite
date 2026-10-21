@@ -64,20 +64,21 @@ class ReplyMetaPage extends BasePage {
     return ReplyMetaPage.parseSeconds(await this.durationButton(tail).innerText());
   }
 
-  /** 打开用量明细弹层，返回弹层内文本 */
+  /** 打开用量明细弹层，返回弹层内文本。
+   *  加固：尾部悬停浮层会拦截指针事件；两段链 普通→dispatchEvent（勿插 force，会假成功在遮挡层上）。 */
   async openUsageBreakdown(tail) {
-    await this.usageButton(tail).click();
+    const btn = this.usageButton(tail);
+    await btn.click({ timeout: 8000 }).catch(async () => btn.dispatchEvent('click'));
     await this.page.waitForTimeout(1200);
     return this.page.evaluate(() => document.body.innerText);
   }
 
-  /** 打开用时明细弹层，返回弹层内文本 */
+  /** 打开用时明细弹层，返回弹层内文本（同样两段链） */
   async openDurationBreakdown(tail) {
     const btn = this.durationButton(tail);
     await btn.scrollIntoViewIfNeeded().catch(() => {});
     await this.page.waitForTimeout(300);
-    // 该按钮实测偶发处于不可见/不稳定态（折叠的过程节点内），故带 force 兜底
-    await btn.click({ timeout: 10000 }).catch(() => btn.click({ force: true, timeout: 5000 }));
+    await btn.click({ timeout: 8000 }).catch(async () => btn.dispatchEvent('click'));
     await this.page.waitForTimeout(1200);
     return this.page.evaluate(() => document.body.innerText);
   }

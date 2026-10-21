@@ -20,18 +20,20 @@
  * M9-03 新工作区内发消息（消息上屏）
  * M9-04 重命名工作区（操作菜单 → 弹窗表单）
  * M9-05 删除工作区（操作菜单 → 确认弹窗 → 树中消失）
- * M9-06 Agent 预设切换（标准 ↔ 极简 往返）
+ * M9-06 Agent 预设切换（eline 五模式：外贸专家/标准/PTC/极简/创造）
  * M9-07 模型选择（当前模型与可选列表）
+ * M9-08 选择工作区按钮（eline 恢复的常驻选择器：当前工作区/菜单/添加工作区入口）
  */
 const { test, expect } = require('../fixtures/app.fixtures');
 const { createWorkspace, deleteWorkspace } = require('../fixtures/workspace-api');
+const CATALOG = require('../fixtures/test-data/ui-catalog');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('M9 工作区', () => {
+test.describe('工作区', () => {
   const STAMP = Date.now().toString(36);
   let WS_TITLE = `ws-autotest-${STAMP}`;   // 工作区标题 = 所采用文件夹名
   let RENAMED_TITLE = `${WS_TITLE}-renamed`;
@@ -114,7 +116,7 @@ test.describe('M9 工作区', () => {
     wsId = ''; // UI 已删除，afterAll 无需再清
   });
 
-  test('M9-06 Agent 预设切换（标准 ↔ 极简 往返）[双端]', async ({ pages }) => {
+  test('M9-06 Agent 预设切换（按目录往返）[双端]', async ({ pages }) => {
     test.setTimeout(120000);
     const ap = pages.agentPreset;
     // Agent 预设 chip 只在首页 hero 态渲染，先回首页
@@ -124,7 +126,10 @@ test.describe('M9 工作区', () => {
     const original = await ap.current();
     const presets = await ap.openMenu();
     await ap.closeMenu();
-    expect(presets.length, '预设菜单应列出多种预设').toBeGreaterThan(1);
+    // 数据驱动：目录中的模式（外贸专家/标准/PTC/极简/创造）应全部出现
+    for (const mode of CATALOG.AGENT_MODES) {
+      expect(presets.some(p => p.includes(mode)), `预设菜单应含「${mode}」`).toBe(true);
+    }
 
     const target = presets.find(p => p !== original) || presets[0];
     await ap.switchTo(target);
@@ -144,9 +149,36 @@ test.describe('M9 工作区', () => {
     await ic.closeModelMenu();
     expect(models, '模型菜单应包含当前模型').toContain(current);
 
-    // 部署仅一个模型时无从切换，记录后跳过切换段（与既有优雅 skip 同策略）
-    const others = models.filter(m => m !== current);
-    test.skip(others.length === 0, `当前部署仅一个模型（${current}），无切换对象`);
-    test.info().annotations.push({ type: 'note', description: `可选模型: ${models.join(', ')}` });
+    // 下钻模型目录拿可选清单（数据驱动：目录显示名与 trigger 名无干净映射，比对 ui-catalog.MODEL_CATALOG）
+    const catalog = await ic.openModelCatalog().catch(() => []);
+    test.info().annotations.push({ type: 'note', description: `当前: ${current}；目录: ${catalog.join(', ') || '(未取到)'}` });
+    for (const model of CATALOG.MODEL_CATALOG) {
+      expect(catalog.some(c => c.toLowerCase().replace(/[^a-z0-9]/g, '').includes(model.toLowerCase().replace(/[^a-z0-9]/g, ''))),
+        `模型目录应含「${model}」`).toBe(true);
+    }
+    test.skip(catalog.length <= 1, '当前部署模型目录仅一个可选模型，无切换对象');
+  });
+
+  test('M9-08 选择工作区按钮（当前工作区 / 菜单 / 添加工作区入口）[双端]', async ({ pages }) => {
+    const w = pages.workspace;
+    // 选择器是首页 hero 的常驻控件；先回首页
+    await pages.sidebar.newSession();
+    await pages.sidebar.openApp();
+
+    const current = await w.currentWorkspace();
+    test.info().annotations.push({ type: 'note', description: `当前工作区: ${current || '(按钮未渲染)'}` });
+    expect(current, '选择工作区按钮应显示当前工作区名').toBeTruthy();
+
+    // 菜单：工作区列表 + 「添加工作区…」入口
+    const items = await w.openPickerMenu();
+    test.info().annotations.push({ type: 'note', description: `菜单项: ${items.join(' | ')}` });
+    expect(items.some(i => i.includes(current)), '菜单应包含当前工作区').toBe(true);
+    expect(items.some(i => /添加工作区/.test(i)), '菜单应提供「添加工作区…」入口').toBe(true);
+    await w.closePickerMenu();
+
+    // 选中当前工作区（幂等操作，应用不应报错、按钮文本不变）
+    await w.openPickerMenu();
+    await w.pickWorkspace(current);
+    expect(await w.currentWorkspace(), '重新选中后按钮文本应不变').toBe(current);
   });
 });

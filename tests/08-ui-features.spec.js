@@ -1,84 +1,225 @@
 // @ts-check
 /**
- * 模块八：其他 UI 功能
+ * 按产品功能域组织的用例（用例 ID 保持历史编号不变）：
+ *   输入区与控件   M8-01 指令  M8-02 模型  M8-03 权限  M8-13 思考程度
+ *   会话治理       M8-04 搜索  M8-09 切换  M8-10 折叠  M8-11 视图分组
+ *   设置中心       M8-05 页签  M8-06 主题  M8-12 字号
+ *   右侧工作面板   M8-07 页签  M8-08 布局  M8-14 功能  M8-15 布局操作
  *
- * M8-01 指令面板（/ 或 指令按钮）   M8-02 模型选择器   M8-03 访问模式菜单
- * M8-04 会话搜索过滤               M8-05 设置页签切换 M8-06 主题切换
- * M8-07 右侧栏页签（对话/轨迹/系统提示词）
- * M8-08 右侧栏布局按钮（新标签页/分栏/全屏）
+ * 预期数据收敛在 fixtures/test-data/ui-catalog.js（数据驱动）：
+ * 新增页签/开关/指令选项/权限档 = 改数据表，用例体零改动。
  */
 const { test, expect } = require('../fixtures/app.fixtures');
+const CATALOG = require('../fixtures/test-data/ui-catalog');
 
-test.describe('M8 其他 UI 功能', () => {
+test.beforeEach(async ({ pages }) => {
+  await pages.sidebar.openApp();
+});
 
-  test.beforeEach(async ({ pages }) => {
-    await pages.sidebar.openApp();
-  });
+test.describe('输入区与控件', () => {
 
   test('M8-01 指令面板打开与关闭 [双端]', async ({ pages }) => {
     await pages.inputControls.openCommandPalette();
     const items = await pages.inputControls.commandItems();
     test.info().annotations.push({ type: 'note', description: `指令: ${items.join(' | ') || '(空)'}` });
     expect(items.length, '指令面板应列出至少一个指令').toBeGreaterThan(0);
+    // 数据驱动：目录中的指令应全部出现
+    for (const cmd of CATALOG.COMMAND_OPTIONS) {
+      expect(items.some(i => i.includes(cmd)), `指令面板应含「${cmd}」`).toBe(true);
+    }
     await pages.inputControls.closeCommandPalette();
   });
 
   test('M8-02 模型选择器展示当前模型与可选列表 [双端]', async ({ pages }) => {
-    const current = await pages.inputControls.currentModel();
+    const ic = pages.inputControls;
+    const current = await ic.currentModel();
     expect(current.length, '当前模型名应非空').toBeGreaterThan(0);
 
-    const models = await pages.inputControls.openModelMenu();
+    const models = await ic.openModelMenu();
     test.info().annotations.push({ type: 'note', description: `模型: ${models.join(' | ')}` });
     expect(models, '模型菜单应包含当前模型').toContain(current);
-    await pages.inputControls.closeModelMenu();
+    await ic.closeModelMenu();
   });
 
-  test('M8-03 访问模式菜单展示当前模式与选项 [双端]', async ({ pages }) => {
-    const current = await pages.inputControls.currentAccessMode();
+  test('M8-03 访问模式（权限选择）菜单 [双端]', async ({ pages }) => {
+    const ic = pages.inputControls;
+    const current = await ic.currentAccessMode();
     expect(current.length, '当前访问模式应非空').toBeGreaterThan(0);
 
-    const options = await pages.inputControls.openAccessModeMenu();
+    const options = await ic.openAccessModeMenu();
     test.info().annotations.push({ type: 'note', description: `访问模式选项: ${options.join(' | ')}` });
+    // 数据驱动：三档权限缺一不可
+    for (const mode of CATALOG.ACCESS_MODES) {
+      expect(options.some(o => o.includes(mode)), `权限菜单应含「${mode}」`).toBe(true);
+    }
     expect(options.some(o => o.includes(current) || current.includes(o)), '菜单应包含当前模式').toBe(true);
-    await pages.inputControls.closeAccessModeMenu();
+    await ic.closeAccessModeMenu();
   });
 
-  test('M8-04 会话搜索过滤 [双端]', async ({ pages }) => {
-    // 先保证至少有一个会话
-    await pages.sidebar.newSession();
+  test('M8-13 模型思考程度（推理等级）展示 [双端]', async ({ pages }) => {
+    const ic = pages.inputControls;
+    const effort = await ic.currentEffort();
+    test.info().annotations.push({ type: 'note', description: `推理等级: ${effort || '(未展示)'}` });
 
-    const all = await pages.sidebar.searchSessions('');
-    const hit = await pages.sidebar.searchSessions('自动化测试');
-    expect(hit, '搜索已有会话关键字应有结果').toBeGreaterThan(0);
+    // 首页 hero 态通常无等级行 —— 进入会话后再读（会话态 trigger aria 携带 推理等级）
+    if (!effort) {
+      await pages.sidebar.newSession();
+      await pages.composer.send(`自动化测试(${Date.now().toString(36)})，请只回复：收到`);
+      await pages.transcript.waitForReply(180000);
+    }
+    const effortInSession = effort || await ic.currentEffort();
+
+    // 模型菜单是否提供思考程度切换行（本部署模型目录未提供 → 记录差异，不判缺陷）
+    await ic.openModelMenu();
+    const switchable = await ic.hasEffortMenuRow();
+    await ic.closeModelMenu();
+
+    test.info().annotations.push({
+      type: 'note',
+      description: switchable ? '模型菜单提供「推理等级」切换行' : '本部署模型菜单未提供推理等级切换行（目录未下发 efforts）',
+    });
+    if (switchable) {
+      expect(effortInSession, '提供切换入口时当前等级应有值').toBeTruthy();
+    }
+  });
+});
+
+test.describe('会话治理', () => {
+
+  test('M8-04 会话搜索过滤 [双端]', async ({ page, pages }) => {
+    test.setTimeout(120000);
+    // 自给自足：先造一个带关键字的会话（用户消息上屏即建会话并以其命名，不等回复）。
+    // 注意：回复完成后应用会用 LLM 改写会话标题（随机戳可能被丢弃），因此断言搜索
+    // 稳定前缀「自动化测试」而非完整关键字。
+    const KEY = `自动化测试${Date.now().toString(36)}`;
+    await pages.composer.send(KEY);
+    await expect(pages.transcript.userBubble(KEY)).toBeVisible({ timeout: 20000 });
+    await pages.sidebar.newSession();
+    await page.waitForTimeout(600);
+
+    // 会话标题（先为原文，回复完成后可能被改写）入库有延迟，轮询等待搜索命中
+    await expect.poll(() => pages.sidebar.searchSessions('自动化测试'), {
+      timeout: 60000, intervals: [1000, 2000, 4000],
+    }).toBeGreaterThan(0);
 
     const none = await pages.sidebar.searchSessions('zzz不存在的会话xyz');
     expect(none, '搜索不存在关键字应无结果').toBe(0);
     await pages.sidebar.searchInput().fill(''); // 恢复
-    test.info().annotations.push({ type: 'note', description: `全部会话操作数: ${all}` });
   });
+
+  test('M8-09 切换会话（树行点击 → 转录本切换）[双端]', async ({ page, pages }) => {
+    test.setTimeout(300000);
+
+    // 会话 A：发一条带唯一标记的消息并等到回复
+    const MARK = `SWITCH-${Date.now().toString(36).toUpperCase()}`;
+    await pages.sidebar.newSession();
+    await pages.composer.send(`请原样输出这个标记词：${MARK}`);
+    await pages.transcript.waitForReply(180000);
+    await expect(pages.transcript.userBubble(`请原样输出这个标记词：${MARK}`)).toBeVisible();
+
+    // 会话 B：新建（空会话），此时主区应离开会话 A
+    await pages.sidebar.newSession();
+    await page.waitForTimeout(800);
+
+    // 树里至少两个会话行，点回会话 A（按标记定位——会话标题是改写过的短标题，完整消息文本不一定保留）
+    const rowCount = await pages.sidebar.sessionRows().count();
+    expect(rowCount, '侧栏树应至少有两个会话行').toBeGreaterThanOrEqual(2);
+    const markedRow = pages.sidebar.sessionRows().filter({ hasText: MARK }).first();
+    await markedRow.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
+    await markedRow.scrollIntoViewIfNeeded().catch(() => {});
+    await markedRow.click();
+    await page.waitForTimeout(1500);
+
+    // 切回后转录本应显示会话 A 的消息
+    await expect(pages.transcript.userBubble(`请原样输出这个标记词：${MARK}`))
+      .toBeVisible({ timeout: 20000 });
+    const selected = await pages.sidebar.selectedSessionText();
+    test.info().annotations.push({ type: 'note', description: `切回会话 A（当前选中行: ${selected.slice(0, 40)}）` });
+  });
+
+  test('M8-10 左上角折叠/打开会话页 [双端]', async ({ pages }) => {
+    // 折叠：eline 实测侧栏收成**图标栏**（品牌位变「打开侧边栏」，保留 新建会话 等图标按钮），
+    // 展开态内容（搜索框/树/视图选项）隐藏
+    await pages.sidebar.collapseSidebar();
+    expect(await pages.sidebar.sidebarCollapsed(), '折叠后应出现「打开侧边栏」按钮').toBe(true);
+    await expect(pages.sidebar.searchInput()).not.toBeVisible();
+
+    // 打开：侧栏恢复，核心控件回归
+    await pages.sidebar.expandSidebar();
+    await expect(pages.sidebar.newSessionButton()).toBeVisible();
+    await expect(pages.sidebar.searchInput()).toBeVisible();
+  });
+
+  test('M8-11 视图选项分组往返 [双端]', async ({ pages }) => {
+    const options = await pages.sidebar.openViewOptionsMenu();
+    test.info().annotations.push({ type: 'note', description: `视图选项: ${options.join(' | ')}` });
+    // 数据驱动：分组方式选项应存在
+    for (const group of CATALOG.VIEW_GROUPS) {
+      expect(options.some(o => o.includes(group)), `视图选项应含「${group}」`).toBe(true);
+    }
+    await pages.sidebar.page.keyboard.press('Escape');
+    await pages.sidebar.page.waitForTimeout(400);
+
+    // 依次切换分组方式，树应保持可用
+    for (const group of CATALOG.VIEW_GROUPS) {
+      await pages.sidebar.openViewOptionsMenu();
+      await pages.sidebar.pickViewOption(new RegExp(`^${group}$`));
+      await expect(pages.sidebar.workspaceRows().first()).toBeVisible({ timeout: 15000 });
+    }
+  });
+});
+
+test.describe('设置中心', () => {
 
   test('M8-05 设置导航项切换正常 [双端]', async ({ pages }) => {
     await pages.sidebar.openSettings();
     await pages.settings.expectTabsVisible(expect);
-    for (const tab of ['通用设置', '模型', '内置插件', 'Agent 预设']) {
+    // 数据驱动：页签清单来自目录
+    for (const tab of CATALOG.SETTINGS_TABS) {
       await pages.settings.openTab(tab);
-      // 每个页签打开后弹窗仍在
       await expect(pages.settings.closeButton()).toBeVisible();
     }
     await pages.settings.close();
   });
 
-  test('M8-06 主题切换：深色/浅色背景亮度变化 [双端]', async ({ pages }) => {
+  test('M8-06 主题切换：亮度按目录阈值断言 [双端]', async ({ pages }) => {
     await pages.sidebar.openSettings();
 
-    const darkLum = await pages.settings.switchTheme('深色');
-    const lightLum = await pages.settings.switchTheme('浅色');
-    test.info().annotations.push({ type: 'note', description: `亮度: 深=${darkLum} 浅=${lightLum}` });
-
-    expect(darkLum, '深色主题背景亮度应低').toBeLessThan(80);
-    expect(lightLum, '浅色主题背景亮度应高').toBeGreaterThan(150);
+    // 数据驱动：主题与亮度阈值来自目录
+    const readings = [];
+    for (const theme of CATALOG.THEMES) {
+      const lum = await pages.settings.switchTheme(theme.name);
+      readings.push(`${theme.name}=${lum}`);
+      if (theme.expect.luminanceAtMost !== undefined) {
+        expect(lum, `${theme.name} 主题背景亮度应 ≤ ${theme.expect.luminanceAtMost}`)
+          .toBeLessThanOrEqual(theme.expect.luminanceAtMost);
+      }
+      if (theme.expect.luminanceAtLeast !== undefined) {
+        expect(lum, `${theme.name} 主题背景亮度应 ≥ ${theme.expect.luminanceAtLeast}`)
+          .toBeGreaterThanOrEqual(theme.expect.luminanceAtLeast);
+      }
+    }
+    test.info().annotations.push({ type: 'note', description: `亮度: ${readings.join(' ')}` });
     await pages.settings.close();
   });
+
+  test('M8-12 设置应用控件：字号增大/减小即时生效 [双端]', async ({ pages }) => {
+    test.setTimeout(120000);
+    await pages.sidebar.openSettings();
+
+    const before = await pages.settings.fontSizePx();
+    await pages.settings.increaseFontSize();
+    const afterUp = await pages.settings.fontSizePx();
+    await pages.settings.decreaseFontSize();
+    const afterDown = await pages.settings.fontSizePx();
+
+    test.info().annotations.push({ type: 'note', description: `字号(px): ${before} → ${afterUp} → ${afterDown}` });
+    // eline 设置无独立「应用」按钮，改动即时生效；字号控件点击后应产生实际变化
+    expect(afterUp, '增大字号应即时生效（字号变化）').not.toBe(before);
+  });
+});
+
+test.describe('右侧工作面板', () => {
 
   test('M8-07 右侧栏页签切换 [双端]', async ({ page, pages }) => {
     test.setTimeout(240000);
@@ -91,7 +232,8 @@ test.describe('M8 其他 UI 功能', () => {
     // 展开右侧栏（折叠时可选页签不渲染），常驻页签可见且可切换
     await pages.rightPanel.expand();
     const optional = await pages.rightPanel.expectTabsVisible(expect);
-    for (const tab of ['对话', '轨迹']) {
+    // 数据驱动：常驻页签来自目录
+    for (const tab of CATALOG.TRANSCRIPT_TABS) {
       await pages.rightPanel.openTab(tab);
       await page.waitForTimeout(300);
     }
@@ -101,7 +243,7 @@ test.describe('M8 其他 UI 功能', () => {
       await page.waitForTimeout(300);
     }
     test.info().annotations.push({ type: 'note', description: `可选页签: ${optional.join(',') || '(无)'}` });
-    await expect(pages.rightPanel.tabButton('对话')).toBeVisible();
+    await expect(pages.rightPanel.tabButton(CATALOG.TRANSCRIPT_TABS[0])).toBeVisible();
   });
 
   test('M8-08 右侧栏布局按钮可见 [双端]', async ({ page, pages }) => {
@@ -113,15 +255,14 @@ test.describe('M8 其他 UI 功能', () => {
 
     await pages.rightPanel.expand(); // 布局按钮在右侧栏展开后渲染
 
-    // 官方版本部署未提供「新标签页/分栏/全屏」这组 dock 控件（实测 element not found）。
-    // 按既有策略：部署配置差异不判为产品缺陷——存在则断言，缺失仅记录。
-    const dock = {
-      新标签页: pages.rightPanel.newTabButton(),
-      分栏: pages.rightPanel.splitButton(),
-      全屏: pages.rightPanel.fullscreenButton(),
-    };
+    // 数据驱动：dock 控件来自目录；历史部署缺失时优雅降级（存在则断言，缺失仅记录）
     const present = [];
-    for (const [name, loc] of Object.entries(dock)) {
+    for (const name of CATALOG.LAYOUT_BUTTONS) {
+      const loc = pages.rightPanel[{
+        '新标签页': 'newTabButton',
+        '分栏': 'splitButton',
+        '全屏': 'fullscreenButton',
+      }[name]]();
       if (await loc.count()) { await expect(loc).toBeVisible(); present.push(name); }
     }
     // 右侧栏本身的开关必须可用（这是右侧栏的核心 chrome）
@@ -133,5 +274,60 @@ test.describe('M8 其他 UI 功能', () => {
       type: 'note',
       description: present.length ? `dock 控件: ${present.join(', ')}` : '本部署未提供 dock 布局控件（新标签页/分栏/全屏）',
     });
+  });
+
+  test('M8-14 右侧栏功能：打开工作区文件 / 新建终端 / 浏览器 [双端]', async ({ page, pages }) => {
+    test.setTimeout(300000);
+
+    await pages.sidebar.newSession();
+    await pages.rightPanel.expand();
+
+    // 1) 打开新建终端（web 也真实开终端：页签 = shell 名，面板内 .xterm）
+    const term = await pages.rightPanel.openTerminal();
+    test.info().annotations.push({ type: 'note', description: `终端页签: ${term.tabs.join(', ')}` });
+    expect(term.tabs.some(t => !['开始', '文件', '对话', '轨迹'].includes(t)), '应出现以 shell 命名的终端页签').toBe(true);
+    expect(term.xtermLike, '终端面板应有 xterm 容器').toBeGreaterThan(0);
+
+    // 2) 打开工作区文件。实测开出页签后「开始」落地页会关闭，经「新标签页」重新打开
+    const filesOpened = await pages.rightPanel.openWorkspaceFiles();
+    expect(filesOpened, '点「工作区文件」应出现文件面板').toBe(true);
+    const toolButtons = await pages.rightPanel.filesPanelButtons();
+    test.info().annotations.push({ type: 'note', description: `文件面板工具: ${toolButtons.join(' | ') || '(无)'}` });
+
+    // 3) 打开浏览器（Electron webview 专属；web(chromium) 形态无该入口 → 记录差异）
+    await pages.rightPanel.openLanding();
+    const browser = await pages.rightPanel.openBrowser();
+    if (!browser.available) {
+      test.info().annotations.push({ type: 'note', description: '当前形态未提供「浏览器」入口（webview 仅桌面端支持）' });
+    } else {
+      test.info().annotations.push({ type: 'note', description: `浏览器页签已打开（地址栏: ${browser.address})` });
+    }
+  });
+
+  test('M8-15 右侧栏布局操作：分栏 / 最大化（全屏）/ 收起 [双端]', async ({ page, pages }) => {
+    test.setTimeout(300000);
+
+    await pages.sidebar.newSession();
+    await pages.rightPanel.expand();
+
+    // 分栏：dock 控件成对出现（每栏一套）
+    let splitCount = 0;
+    if (await pages.rightPanel.splitButton().count()) {
+      splitCount = await pages.rightPanel.split();
+      expect(splitCount, '分栏后应有双栏（分栏按钮成对出现）').toBeGreaterThanOrEqual(2);
+    } else {
+      test.info().annotations.push({ type: 'note', description: '本形态无「分栏」控件，跳过分栏段' });
+    }
+
+    // 最大化（全屏）：按钮变「退出全屏」
+    const maximized = await pages.rightPanel.maximize();
+    expect(maximized, '全屏后应出现「退出全屏」').toBe(true);
+    await pages.rightPanel.exitMaximize();
+    await expect(pages.rightPanel.fullscreenButton().first()).toBeVisible({ timeout: 10000 });
+
+    // 收起：回到「打开右侧边栏」
+    const collapsed = await pages.rightPanel.collapse();
+    expect(collapsed, '收起后应回归「打开右侧边栏」按钮').toBe(true);
+    await pages.rightPanel.expand();
   });
 });

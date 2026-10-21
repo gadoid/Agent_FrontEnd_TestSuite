@@ -35,7 +35,8 @@ test.describe('M1 安装/启动', () => {
 
     await pages.sidebar.openApp(); // electron 下 no-op（窗口已就绪）
 
-    expect(await page.title()).toContain('DeepSeek');
+    // eline 定制构建的页面标题是「eline」（官方版是 DeepSeek 品牌文案）
+    expect(await page.title()).toMatch(/eline/i);
     await expect(pages.sidebar.newSessionButton()).toBeVisible();
     await expect(pages.sidebar.settingsButton()).toBeVisible();
     await expect(pages.sidebar.searchInput()).toBeVisible();

@@ -33,20 +33,47 @@ class BasePage {
     }
     await this.waitForReady();
     await this.dismissOnboarding();
+    await this.ensureWorkspaceSelected();
+    return this;
+  }
+
+  /**
+   * 确保已选择工作区（eline 实测：归档活动会话等场景会把工作区上下文清空并持久化，
+   * 主区变「选择一个工作区开始」空态，侧栏搜索框不渲染，后续用例连锁失败）。
+   * 空态下自动从选择工作区菜单选回默认工作区；非空态静默跳过。
+   */
+  async ensureWorkspaceSelected(defaultName = '默认工作区') {
+    const page = this.page;
+    const empty = await page.getByText('选择一个工作区开始').isVisible().catch(() => false);
+    const chip = page.locator('button[aria-label="选择工作区"]');
+    let chipSaysNone = false;
+    if (await chip.count().catch(() => 0)) {
+      const t = (await chip.first().innerText().catch(() => '')) || '';
+      chipSaysNone = /选择/.test(t);
+    }
+    if (!empty && !chipSaysNone) return this;
+    await chip.first().click().catch(() => {});
+    await page.locator('[role="menuitem"]').first().waitFor({ timeout: 8000 }).catch(() => {});
+    const item = page.locator('[role="menuitem"]').filter({ hasText: defaultName }).first();
+    if (await item.count().catch(() => 0)) await item.click().catch(() => {});
+    else await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(800);
     return this;
   }
 
   /**
    * 消解首载的「预览版说明」模态。
    *
-   * 官方版首次载入（尤其新 profile / 新 DSH_HOME）会弹一个预览版说明对话框，
+   * eline/官方版首次载入（每个全新浏览器上下文都会再弹）会弹一个预览版说明对话框，
    * 带 `aria-hidden` 遮罩拦截所有点击——不关掉的话后续任何 click 都会超时。
-   * 已消解过或本就不弹时静默跳过。
+   * 注意：弹层在应用骨架渲染完成后才异步挂载，立即用 count() 查会漏掉
+   * （遮罩还在、按钮还没出来），必须显式等它出现。已消解过或本就不弹时静默跳过。
    */
   async dismissOnboarding() {
-    const cont = this.page.getByRole('button', { name: '继续', exact: true });
-    if (await cont.count().catch(() => 0)) {
-      await cont.first().click({ timeout: 5000 }).catch(() => {});
+    const cont = this.page.getByRole('button', { name: '继续', exact: true }).first();
+    const appeared = await cont.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false);
+    if (appeared) {
+      await cont.click({ timeout: 5000 }).catch(() => {});
       await this.page.waitForTimeout(500);
     }
     // 兜底：遮罩还在就按 Esc

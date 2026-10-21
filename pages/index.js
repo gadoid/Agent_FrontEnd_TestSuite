@@ -16,6 +16,7 @@ const { WorkspacePage } = require('./WorkspacePage');
 const { AgentPresetPage } = require('./AgentPresetPage');
 const { PluginManagerPage } = require('./PluginManagerPage');
 const { SettingsDialogPage } = require('./SettingsDialogPage');
+const { SessionOpsPage } = require('./SessionOpsPage');
 
 /**
  * @param {import('@playwright/test').Page} page
@@ -35,6 +36,7 @@ function createPages(page, mode, extra = {}) {
     agentPreset: new AgentPresetPage(page, opts),
     plugins: new PluginManagerPage(page, opts),
     settings: new SettingsDialogPage(page, opts),
+    sessionOps: new SessionOpsPage(page, opts),
   };
 }
 

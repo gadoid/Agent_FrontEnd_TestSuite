@@ -151,19 +151,25 @@ async function startWebServer({ logger = console.log } = {}) {
     return t ? t[1] : null;
   };
 
-  // 就绪判定：优先日志里的 `dsh web:` 行（顺带拿 token），兜底端口监听
+  // 就绪判定：优先日志里的 `dsh web:` 行（顺带拿 token），兜底端口监听。
+  // eline 实测（2026-10）：服务**先监听端口、后打印 token 行**，因此端口就绪后
+  // 还要再给日志一个出现窗口，否则 token 永远捕获不到（auth.setup 将无 token 可用）。
   let token = null;
   let exited = false;
   child.on('exit', (code) => { exited = true; logger(`[web-server] 进程退出 code=${code}`); });
 
   const deadline = Date.now() + 120000;
+  let portUpAt = 0;
   while (Date.now() < deadline) {
     token = parseToken(readLog());
     if (token) break;
     if (exited) {
       throw new Error(`dsh web 启动失败（进程已退出）。输出:\n${readLog().slice(-3000)}`);
     }
-    if (await portInUse(port, host)) break;   // 端口已起但没有 token 行 → 走兜底
+    if (await portInUse(port, host)) {
+      if (!portUpAt) portUpAt = Date.now();
+      if (Date.now() - portUpAt > 8000) break;   // 端口已起且 token 行 8s 仍未出现 → 走兜底
+    }
     await new Promise(r => setTimeout(r, 500));
   }
   if (!token) logger('[web-server] 日志中未出现 "dsh web:" 行（token 缺失，将走离线 cookie）');

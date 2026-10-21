@@ -66,6 +66,14 @@ class MessageActionsPage extends BasePage {
     return fromPage || '';
   }
 
+  /** turn-tail 按钮的两段点击链：普通点击 → dispatchEvent 直发。
+   *  ⚠️ 不要插入 force 中间层：force 跳过可交互性检查后「成功」点在遮挡层上
+   *  （_mask/hoverContent 实测），不抛错导致 dispatchEvent 兜底永远不会执行（全量轮实测）。 */
+  async _clickTailButton(btn) {
+    await btn.click({ timeout: 10000 }).catch(async () => btn.dispatchEvent('click'));
+    return this;
+  }
+
   /**
    * 点赞；返回是否观察到反馈。
    *
@@ -76,7 +84,7 @@ class MessageActionsPage extends BasePage {
    */
   async like(tail = this.tail()) {
     await this.reveal(tail);
-    await this.likeButton(tail).click({ timeout: 10000 }).catch(() => this.likeButton(tail).click({ force: true }));
+    await this._clickTailButton(this.likeButton(tail));
     const deadline = Date.now() + 12000;
     while (Date.now() < deadline) {
       const body = await this.page.evaluate(() => document.body.innerText).catch(() => '');
@@ -92,10 +100,10 @@ class MessageActionsPage extends BasePage {
     await this.page.waitForTimeout(500);
   }
 
-  /** 点踩，等待「提交反馈」表单弹出，返回 dialog locator */
+  /** 点踩，等待「提交反馈」表单弹出，返回 dialog locator（两段点击链，见 _clickTailButton） */
   async openDislikeForm(tail = this.tail()) {
     await this.reveal(tail);
-    await this.dislikeButton(tail).click({ timeout: 10000 }).catch(() => this.dislikeButton(tail).click({ force: true }));
+    await this._clickTailButton(this.dislikeButton(tail));
     const dlg = this.page.locator('[role="dialog"]').last();
     await dlg.waitFor({ timeout: 10000 });
     return dlg;

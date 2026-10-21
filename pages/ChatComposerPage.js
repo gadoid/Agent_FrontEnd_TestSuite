@@ -119,8 +119,43 @@ class ChatComposerPage extends BasePage {
       .count();
   }
 
+  /**
+   * 移除待发送附件（点附件条上的「移除文件 X」按钮，M5-01A 反例用）。
+   * name 省略时移除第一个。返回是否找到并点击了移除按钮。
+   */
+  async removeAttachment(name) {
+    const scope = this.page.locator('[data-slot="conversation.input.attachments"]');
+    const btn = name
+      ? scope.getByRole('button', { name: `移除文件 ${name}` })
+      : scope.locator('button[aria-label^="移除文件"]').first();
+    if (!(await btn.count())) return false;
+    await btn.first().click({ timeout: 8000 }).catch(() => btn.first().click({ force: true, timeout: 5000 }));
+    await this.page.waitForTimeout(600);
+    return true;
+  }
+
   async text() {
     return this.input().innerText();
+  }
+
+  /* ---------- @ 引用（M10 探索补盲） ---------- */
+  /**
+   * 在输入区输入「@」唤起会话/文件引用列表，返回可见选项文本。
+   * 实测列出全部历史会话（title + 相对时间）。
+   */
+  async mentionOptions(keyword = '') {
+    const input = this.input().last();
+    await input.click();
+    await input.fill('');
+    await this.page.keyboard.type(`@${keyword}`, { delay: 60 }).catch(() => {});
+    await this.page.waitForTimeout(900);
+    const options = await this.page.evaluate(() => [...document.querySelectorAll('[role="option"]')]
+      .filter(o => o.getBoundingClientRect().width > 0)
+      .map(o => (o.innerText || '').trim().replace(/\n/g, ' '))
+      .filter(Boolean));
+    await this.page.keyboard.press('Backspace').catch(() => {});
+    await this.page.waitForTimeout(300);
+    return options;
   }
 }
 
