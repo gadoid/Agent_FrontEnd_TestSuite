@@ -6,3 +6,5 @@ playwright-report/
 .env
 chunk.js
 modal-code.json
+playwright-report*.zip
+reports/

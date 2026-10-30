@@ -24,7 +24,9 @@ module.exports = defineConfig({
   retries: process.env.CI ? 2 : 1,
   // 用例全部打真实 LLM 后端，高并发易触发服务限流导致间歇失败；限 2 并发
   workers: 2,
-  reporter: [['html', { open: 'never' }], ['list']],
+  // case-logger：每条用例开始时向控制台打印「ID + 标题 + 用例描述（取自 TEST-CASES.md）」；
+  // 结果行仍由 list 输出。HTML 报告同源描述见 fixtures/test-data/case-catalog.js
+  reporter: [['html', { open: 'never' }], ['list'], ['./reporters/case-logger.js']],
 
   expect: { timeout: 15_000 },
 
