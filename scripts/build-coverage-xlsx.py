@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""生成《ElineAI 自动化用例覆盖清单.xlsx》：总览 / 用例清单 / 功能点覆盖映射 三个 sheet。"""
+"""生成《SparkSeed 自动化用例覆盖清单.xlsx》：总览 / 用例清单 / 功能点覆盖映射 三个 sheet。"""
 import sys, os
 XLSX_SKILL_DIR = r"C:\Users\123\.zcode\cli\plugins\cache\zcode-plugins-official\document-skills\0.1.4\skills\xlsx"
 for sub in [XLSX_SKILL_DIR, os.path.join(XLSX_SKILL_DIR, "templates")]:
@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-OUT = r"D:\Agent_FrontEnd_TestSuite\自动化用例覆盖清单.xlsx"
+OUT = r"D:\Agent_FrontEnd_TestSuite\docs\自动化用例覆盖清单.xlsx"
 
 # ---------------------------------------------------------------- 数据 ----
 # 模块 = 产品功能域（用例 ID 前缀是历史批次编号，与模块归属解耦，映射见 MODULE_OF）

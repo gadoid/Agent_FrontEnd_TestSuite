@@ -1,7 +1,7 @@
-# ElineAI 客户端测试用例设计
+# SparkSeed 客户端测试用例设计
 
-> 被测对象：**ElineAI 桌面客户端**（`D:\ElineAI\eline.exe`，官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构建）
-> 目标服务：`http://127.0.0.1:3080`（套件自起 `dsh web`；**eline 的 cookie 密钥不落盘，登录态走 token 兑换**）
+> 被测对象：**SparkSeed 桌面客户端**（`D:\sparkseed\sparkseed.exe`，官方 DeepSeek Harness v0.2.0-rc.8）
+> 目标服务：`http://127.0.0.1:3080`（套件自起 `dsh web`；**sparkseed 的 cookie 密钥不落盘，登录态走 token 兑换**）
 > 覆盖形态：**Web**（chromium）与 **Electron 桌面端**（`dsh-app://app/` 窗口）
 > 组织方式：**按产品功能域划分模块**（13 个域）；**用例 ID 保持历史编号**（M8/M9/M10 前缀只代表来源批次，与模块归属解耦，映射见各模块表格与 `scripts/build-coverage-xlsx.py` 的 MODULE_OF）
 > 数据驱动：UI 预期数据（页签/开关/选项/主题阈值/语言/模式清单）统一收敛在 **`fixtures/test-data/ui-catalog.js`**，新增一个页签/开关/选项 = 改数据表，用例体零改动
@@ -29,23 +29,22 @@
 
 ---
 
-## eline 构建说明（2026-10 探测）
+## SparkSeed 构建说明（2026-10 探测）
 
-D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构建
-（asar 内 `@deepseek-ai/dsh-desktop` 0.2.0-rc.2，appId `com.eline.desktop`），
-与官方版共用运行时，差异点与本套件的应对：
+D:\sparkseed\sparkseed.exe 是官方 DeepSeek Harness v0.2.0-rc.8（原 ElineAI 定制构建已更名
+迁移回官方线，部署 persona 延续）。实测差异点与本套件的应对：
 
-| 维度 | eline 构建实测 | 套件应对 |
+| 维度 | sparkseed rc.7/8 实测 | 套件应对 |
 |---|---|---|
-| 登录策略 | `feishu-test`（首启跳 `elineai.21eline.com`） | 桌面端内置认证直接可用；web 走 token |
+| 登录策略 | `anonymous` / `feishu-test`；凭据持久化在 `~/.dsh/.credentials.yaml` | 桌面端内置认证直接可用；web 走 token |
 | cookie 构造 | 签名密钥**不落盘**，离线构造必 401 | `auth.setup` 离线失败后自动降级 token 流程 |
 | token 打印时机 | 服务**先监听端口、后打印 token 行** | web-server 端口就绪后再等日志 8s |
-| LLM | 内置「易链 AI」中转（deepseek-v4-pro/flash），凭据随登录态 | 无需注入 key |
-| 品牌 | 标题 `eline`，hero 标语「探索未至之境」 | M1 标题断言 `/eline/i` |
-| 模式 | 外贸专家模式（eline 特有 persona）/ 标准 / PTC / 极简 / 创造 | M9-06 按实测五模式（数据见 ui-catalog.AGENT_MODES） |
-| 工作区选择器 | hero 区**常驻「选择工作区」按钮**（官方版无） | M9-08 专测 |
-| 插件面 | 侧栏另有 eline 特有「易链插件市场」入口（外部内容） | M4 组只测内置插件能力面，不点外部市场 |
-| 思考程度 | 会话态模型按钮显示「推理等级 high」，但模型菜单未下发切换行 | M8-13 展示断言 + 差异记录 |
+| 内部 host | 随机端口（rc.2 时代硬编码 19387 已移除） | 实例检测按进程名（`desktopAppRunning`） |
+| LLM | sparkseed 官方中转（glm-5.3/deepseek-v4 系列），官方路由可注入 key | `E2E_LLM_API_KEY` → `DEEPSEEK_API_KEY` |
+| 品牌 | 标题 `sparkseed`；欢迎引导为 `file://welcome.html` | M1 标题断言 `/sparkseed/i` |
+| 模式 | 外贸专家/标准/PTC/极简/创造（五模式延续） | M9-06 按实测五模式（数据见 ui-catalog.AGENT_MODES） |
+| 设置 | 导航新增「账号」页签；模型页签 provider（sparkseed）目录卡片 | M8-05 页签数据驱动；M10-07 provider 编辑 |
+| 插件 | 组件启停收敛到插件级「启用 {插件名}」；示例包名 `sparkseed-plugin-whale-pet` | M4-05 双形态兼容；目录数据已更新 |
 | 浏览器页签 | 右栏「开始」落地页的浏览器入口依赖 Electron webview | M8-14 web 形态记录差异 |
 
 **环境前置**：`~/.dsh` 为多版共用的数据目录；若 `~/.dsh/profiles` 残留旧版包集会遮蔽运行时自带包
@@ -59,7 +58,7 @@ D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构�
 |----|------|------|------|------|------|
 | M1-01 | Web 服务可达且返回客户端页面 | 服务已启动 | GET `/`（带认证态） | 200；HTML 含 `__ModuleLoader__` / `__DSH_BOOT__` | web |
 | M1-02 | 未认证访问被拦截 | 无 | 无 cookie 请求 `/` | 401/403 | web |
-| M1-03/04 | 客户端启动，关键 UI 就绪 | M1-01 | 打开页面/启动桌面端 | 标题 `eline`；新建会话/设置/搜索可见；版本号可读；插件入口存在则验证 | 双端 |
+| M1-03/04 | 客户端启动，关键 UI 就绪 | M1-01 | 打开页面/启动桌面端 | 标题 `sparkseed`；新建会话/设置/搜索可见；版本号可读；插件入口存在则验证 | 双端 |
 
 ## 登录 / 认证
 
@@ -69,14 +68,14 @@ D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构�
 | M2-02 | 无 token/cookie 直接访问被拒 | 裸请求 `/` | 401 且响应体含 auth 字样 | web |
 | M2-03/04 | 认证态下应用完整可用 | 直接进入应用 | 新建会话可见；工作区树非空 | 双端 |
 
-> eline 桌面端登录策略为 `feishu-test`：首次启动跳浏览器完成飞书认证，之后凭据持久化在
-> `~/.dsh`，自动化无需介入。web 端登录态由套件用 token 兑换（token 由 `dsh web` 启动输出捕获）。
+> sparkseed 桌面端登录策略为 `anonymous` / `feishu-test`：凭据持久化在 `~/.dsh/.credentials.yaml`，
+> 已登录则启动直达主窗口，自动化无需介入。web 端登录态由套件用 token 兑换（token 由 `dsh web` 启动输出捕获）。
 
 ## 对话
 
 | ID | 标题 | 步骤 | 预期 | 形态 |
 |----|------|------|------|------|
-| M3-01 | 发送消息并收到回复 | 新会话→输入→发送 | 用户消息上屏；回复正文非空（≤180s；易链中转偶发重试后成功） | 双端 |
+| M3-01 | 发送消息并收到回复 | 新会话→输入→发送 | 用户消息上屏；回复正文非空（≤180s；官方路由偶发重试后成功） | 双端 |
 | M3-02 | 多轮上下文保持 | 追问首条消息中的随机串 | 回复包含该随机串 | 双端 |
 | M3-03 | 会话留存侧边栏（左侧对话框） | 发送后检查侧栏树 | 出现该会话的树行（`data-row-key^="session:"`） | 双端 |
 
@@ -133,7 +132,7 @@ D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构�
 | ID | 标题 | 步骤 | 预期 | 形态 |
 |----|------|------|------|------|
 | M8-01 | 指令面板打开与关闭 | 点「添加文件或调用指令」 | 数据驱动：目录中的指令（文件/目标/计划/反馈/压缩/权限/模型/下载日志）全部出现；Esc 关闭 | 双端 |
-| M8-02 | 模型选择器 | 读当前模型→打开菜单 | 菜单含当前模型（易链中转：deepseek-v4-flash/pro） | 双端 |
+| M8-02 | 模型选择器 | 读当前模型→打开菜单 | 菜单含当前模型（官方中转：deepseek-v4-flash/pro） | 双端 |
 | M8-03 | 访问模式（权限选择）菜单 | 读当前模式→打开菜单 | 数据驱动：**仅可查看 / 工作区内修改 / 完全权限** 全部出现，含当前模式 | 双端 |
 | M8-13 | 模型思考程度（推理等级）展示 | 读 trigger aria /按钮第二行；开菜单探测切换行 | 会话态展示当前等级（如 high）；切换行随模型目录下发（缺失记录差异） | 双端 |
 | M9-06 | Agent 预设（模式选择）往返 | hero 模式 chip 切换往返 | 数据驱动：五模式（外贸专家/标准/PTC/极简/创造）全部出现；切换后 chip 更新并可复原 | 双端 |
@@ -170,7 +169,7 @@ D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构�
 |----|------|------|------|------|
 | M8-05 | 设置导航项切换 | 数据驱动：逐个切 通用设置/模型/内置插件/Agent 预设 | 均可切换，弹窗保持 | 双端 |
 | M8-06 | 主题切换（按目录阈值） | 数据驱动：深色≤80 / 浅色≥150 | 亮度符合阈值 | 双端 |
-| M8-12 | 设置应用控件（字号即时生效） | 增大字号→减小字号 | 字号值实际变化（eline 设置无独立「应用」按钮） | 双端 |
+| M8-12 | 设置应用控件（字号即时生效） | 增大字号→减小字号 | 字号值实际变化（设置即时生效，无独立「应用」按钮） | 双端 |
 | M10-05 | 快捷键编辑器 | 编辑快捷键→搜索「会话」 | 数据驱动：归档/重命名/分叉会话绑定可读 | 双端 |
 | M10-06 | 语言切换（中/英） | 数据驱动：按目录切 English→中文 | 英文锚点文案消失/中文恢复（finally 保证复原） | 双端 |
 | M10-07 | 模型提供商编辑器 | 设置→模型→「编辑 中转站」 | 弹层含模型输入行/添加模型/取消（不落盘） | 双端 |
@@ -299,13 +298,16 @@ D:\ElineAI\eline.exe 是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构�
 ```
 Agent_FrontEnd_TestSuite/
 ├── playwright.config.js        # web-server / setup / web-chromium / electron 四项目
-├── TEST-CASES.md               # 本文档
+├── TEST-CASES.md               # 本文档（用例描述的单一事实源）
+├── docs/                       # 使用说明（USAGE）、问题根因分析、覆盖清单 xlsx
+├── reporters/
+│   └── case-logger.js          # 控制台用例描述打印（每条用例开始时输出 ID+描述）
 ├── fixtures/
 │   ├── app.fixtures.js         # 双模式夹具：mode/page/electronApp/pages（组合根）
 │   ├── env.js                  # .env 加载 + 键名守卫
-│   ├── ports.js                # 端口探测（桌面 host 19387 / web 3080）
+│   ├── ports.js                # 端口/进程探测（桌面单实例按映像名 / web 3080）
 │   ├── web-server.js           # dsh web 生命周期（自动捕获 token）
-│   ├── dsh-credentials.js      # 离线 cookie 构造（官方版兼容；eline 下自动降级 token）
+│   ├── dsh-credentials.js      # 离线 cookie 构造（密钥不落盘，失败自动降级 token）
 │   ├── workspace-api.js        # 工作区 RPC（绕过 OS 目录选择器）
 │   └── test-data/ui-catalog.js # 数据驱动：UI 预期数据目录（页签/开关/选项/模式/模型…）
 ├── pages/                      # 页面组件封装（POM，一组件一文件）
@@ -339,16 +341,17 @@ Agent_FrontEnd_TestSuite/
 
 ```bash
 npm run test:web        # Web 形态（自动起停 dsh web，自动捕获 token 登录）
-npm run test:electron   # 桌面形态（须先彻底退出 ElineAI 桌面应用：硬性单实例锁）
+npm run test:electron   # 桌面形态（须先彻底退出 SparkSeed 桌面应用：硬性单实例锁）
 npm test                # 串行跑两轮
 npm run report          # HTML 报告
+npm run report:export   # 报告按时间戳归档到 reports/（每轮会覆盖 playwright-report/）
 ```
 
 ## 已知约束与维护提示
 
 1. **token 生命周期**：`dsh web` 每次重启打印新 token；套件自起服务时自动捕获并兑换 30 天 cookie。
    仅 `E2E_SKIP_SERVER_START=1` 连外部服务时才需手工提供 `E2E_TOKEN`。
-2. **真实 LLM 用例**（M3/M5/M6/M7）打「易链 AI」中转，超时放宽 180~420s；偶发模型重试由 retries 兜底。
+2. **真实 LLM 用例**（M3/M5/M6/M7）打 sparkseed 官方模型路由（可经 `.env` 的 `E2E_LLM_API_KEY` 注入凭据），超时放宽 180~420s；偶发模型重试由 retries 兜底。
 3. **并发限制**：`workers: 2`（electron 轮 1，单实例锁）。
 4. **视口与语言**：`locale: zh-CN`；`viewport 1440x900`（小视口下右栏/统计条被响应式隐藏）。
 5. **测试数据残留**：对话类用例会在默认工作区留下真实会话，需要时手工清理。
@@ -356,12 +359,12 @@ npm run report          # HTML 报告
    注意弹层在应用骨架渲染完成后才异步挂载，关闭动作必须显式等待（BasePage 已处理）。
 7. **浏览器页签**：依赖 Electron webview，web(chromium) 形态无该入口（M8-14 记录差异）。
 8. **思考程度**：本部署模型目录未下发推理等级切换行（trigger 仍显示当前等级），M8-13 以展示断言为主。
-9. **桌面端模型渠道映射**（2026-10 实测）：桌面 account 路由曾把全部模型的请求上游映射为
-   wire 模型 `deepseek-flash`，而中转上该渠道不可用（`No available channel … (distributor)`）→
-   桌面端新会话对话全部失败。已由部署侧把 flash 渠道更名为 `deepseek-v4-flash` 后恢复。
+9. **桌面端模型渠道映射**（ElineAI 中转时代历史案例，保留作排查思路）：桌面 account 路由曾把全部模型的
+   请求上游映射为 wire 模型 `deepseek-flash`，而中转上该渠道不可用（`No available channel … (distributor)`）→
+   桌面端新会话对话全部失败，由部署侧把 flash 渠道更名后恢复。
    遇桌面端 LLM 用例批量报「本轮运行失败 No available channel」时，先用 web 探针区分
    「中转整体故障」与「仅桌面 account 路由映射问题」。
-10. **web 轮与桌面实例可共存**（19387 与 3080 互不冲突），但共享 `~/.dsh` 业务数据；
+10. **web 轮与桌面实例可共存**（桌面内部 host 随机端口，与 3080 互不冲突），但共享 `~/.dsh` 业务数据；
     electron 轮必须先彻底退出桌面应用（硬性单实例锁）。
 11. **会话治理入口**：重命名/归档/分叉走会话行 hover 的操作菜单（快捷键有焦点 region 门控）；
     空「新会话」未落库不可改名/归档；归档/分叉副本可能落折叠分组，断言用搜索兜底（M10-02/03/04）。
