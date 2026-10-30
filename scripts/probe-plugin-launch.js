@@ -18,7 +18,7 @@ loadEnv();
   console.log(`[probe] cwd=${RUNTIME_CWD}  DEEPSEEK_API_KEY=${llmEnv().DEEPSEEK_API_KEY ? '已注入' : '未注入'}`);
 
   const app = await _electron.launch({
-    executablePath: 'D:/ElineAI/eline.exe',
+    executablePath: 'D:/sparkseed/sparkseed.exe',
     cwd: RUNTIME_CWD,
     env: { ...process.env, ...llmEnv() },
     timeout: 60000,

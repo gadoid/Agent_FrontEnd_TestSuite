@@ -23,7 +23,7 @@ const lumOf = (rgb) => {
   const RUNTIME_CWD = path.join(os.tmpdir(), 'dsh-e2e-cwd');
   fs.mkdirSync(RUNTIME_CWD, { recursive: true });
   const app = await _electron.launch({
-    executablePath: 'D:/ElineAI/eline.exe',
+    executablePath: 'D:/sparkseed/sparkseed.exe',
     cwd: RUNTIME_CWD,
     env: { ...process.env, ...llmEnv() },
     timeout: 60000,

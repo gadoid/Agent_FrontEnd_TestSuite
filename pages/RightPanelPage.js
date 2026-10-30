@@ -60,6 +60,24 @@ class RightPanelPage extends BasePage {
     return this;
   }
 
+  /**
+   * 关闭所有「已恢复」的 dock 页签（页签行内有「关闭」钮的终端/文件等）。
+   * rc.7 起 dock 页签状态持久化到 ~/.dsh 并跨应用重启恢复：先前用例开的终端/文件
+   * 页签会在新一轮启动时恢复，遮住「开始」落地页与会话的 对话/轨迹 页签。
+   * 断言前先清理，保证用例间不因共享 ~/.dsh 而相互耦合。有界循环，绝不让它挂住。
+   */
+  async closeRestoredTabs({ max = 8 } = {}) {
+    for (let i = 0; i < max; i++) {
+      const closeBtn = this.page.locator('[role="tab"] button')
+        .filter({ hasText: /^关闭$/ })
+        .first();
+      if (!(await closeBtn.isVisible().catch(() => false))) break;
+      await closeBtn.click({ timeout: 5000 }).catch(() => {});
+      await this.page.waitForTimeout(600);
+    }
+    return this;
+  }
+
   /* ---------- 布局按钮 ---------- */
   newTabButton() {
     return this.page.getByRole('button', { name: '新标签页', exact: true });

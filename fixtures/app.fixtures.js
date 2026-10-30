@@ -1,16 +1,19 @@
 // @ts-check
 /**
- * 双模式测试夹具：同一套 spec 同时支持 web 与 electron（被测应用 = ElineAI 桌面客户端）
+ * 双模式测试夹具：同一套 spec 同时支持 web 与 electron（被测应用 = SparkSeed 桌面客户端）
  *
  * - web 模式（默认）：chromium + storageState（登录态由 tests/auth.setup.js 准备）
- * - electron 模式：playwright._electron 启动 eline 桌面客户端，取 dsh-app:// 主窗口作为 page
+ * - electron 模式：playwright._electron 启动 sparkseed 桌面客户端，取 dsh-app:// 主窗口作为 page
  *
- * ElineAI（D:\ElineAI\eline.exe）实测（2026-10）：
- *   · 它是官方 DeepSeek Harness v0.2.0-rc.2 的 eline 定制构建（appId com.eline.desktop，
- *     登录策略 feishu-test，LLM 走「易链 AI」中转），桌面窗口同样加载 dsh-app://app/，
- *     内部 host 同样固定 19387，单实例锁同样硬性。
- *   · **cookie 离线构造不可用**：签名密钥未持久化到 .credentials.yaml（与官方版不同），
- *     web 登录态走 token 流程（`dsh web` 启动输出 ?token=…，web-server 夹具自动捕获）。
+ * SparkSeed（D:\sparkseed\sparkseed.exe，官方 DeepSeek Harness v0.2.0-rc.7，2026-10 实测）：
+ *   · 前身 ElineAI（rc.2 定制构建）已更名 SparkSeed；dsh-app://app/ 主窗口、内部
+ *     dsh host、~/.dsh 业务数据布局均延续。
+ *   · **桌面内部 host 不再硬编码 19387**（改随机端口）——「是否已有实例」按映像名
+ *     查进程判定（Electron requestSingleInstanceLock 单实例锁仍硬性，抢不到即 quit）。
+ *   · 欢迎流程重做：file://welcome.html 登录/API Key 引导（无旧版「预览版说明」弹窗）；
+ *     凭据在 ~/.dsh/.credentials.yaml，已登录状态下启动直达主窗口。
+ *   · **cookie 离线构造不可用**（与 eline 相同）：web 登录态走 token 流程
+ *     （`dsh web` 启动输出 ?token=…，web-server 夹具自动捕获）。
  *   · 启动会读当前工作目录的 .env，命中 DSH_ 前缀即抛错退出 → 必须给中性 cwd。
  *
  * 用法（spec 内）：
@@ -23,7 +26,7 @@ const os = require('os');
 const path = require('path');
 const { createPages } = require('../pages');
 const { loadEnv, readEnv, llmEnv } = require('./env');
-const { DESKTOP_HOST_PORT, portInUse, desktopExe } = require('./ports');
+const { desktopAppRunning, desktopImageName, desktopExe } = require('./ports');
 const { describeTitle } = require('./test-data/case-catalog');
 
 // 机器相关配置统一走 .env（见 .env.example），命令行/CI 环境变量优先
@@ -32,9 +35,8 @@ loadEnv();
 /** 桌面客户端常见安装位置（E2E_DSH_EXE 未设置时自动探测） */
 const ELECTRON_PROBE_PATHS = [
   readEnv('E2E_DSH_EXE', ['DSH_ELECTRON_PATH']),
-  'D:/ElineAI/eline.exe',
-  `${process.env.LOCALAPPDATA || ''}/Programs/eline/eline.exe`,
-  `${process.env.LOCALAPPDATA || ''}/Programs/ElineAI/eline.exe`,
+  'D:/sparkseed/sparkseed.exe',
+  `${process.env.LOCALAPPDATA || ''}/Programs/sparkseed/sparkseed.exe`,
   `${process.env.LOCALAPPDATA || ''}/Programs/DeepSeek Harness/DeepSeek Harness.exe`,
 ].filter(Boolean);
 
@@ -43,6 +45,9 @@ function detectElectronPath() {
   const fromEnv = readEnv('E2E_DSH_EXE', ['DSH_ELECTRON_PATH']);
   const hit = ELECTRON_PROBE_PATHS.find(p => { try { return fs.existsSync(p); } catch { return false; } });
   if (hit && !fromEnv) console.log(`[electron] 未设置 E2E_DSH_EXE，自动探测到: ${hit}`);
+  if (!hit && fromEnv) {
+    console.warn(`[electron] ⚠ E2E_DSH_EXE=${fromEnv} 不存在——应用可能升级后更换了安装位置，请更新 .env`);
+  }
   return hit || null;
 }
 
@@ -56,10 +61,11 @@ const ELECTRON_ARGS = (readEnv('E2E_ELECTRON_ARGS', ['DSH_ELECTRON_ARGS']) || ''
 /** web 模式下应用地址 */
 const APP_URL = process.env.E2E_URL || 'http://127.0.0.1:3080';
 
-/** Electron 档案的 Chromium cookie 库（host 127.0.0.1 的 dsh-auth-* 都积在这里） */
+/** Electron 档案的 Chromium cookie 库（host 127.0.0.1 的 dsh-auth-* 都积在这里）。
+ *  SparkSeed 的 userData 目录是 %APPDATA%/sparkseed（原 eline 同布局改名）。 */
 const COOKIE_DB = path.join(
   process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-  'eline', 'Network', 'Cookies',
+  'sparkseed', 'Network', 'Cookies',
 );
 
 /**
@@ -99,8 +105,8 @@ const MIN_TEST_DURATION_MS = Number(readEnv('E2E_MIN_TEST_MS') ?? 6000) || 0;
 /**
  * 等待并返回应用主窗口。
  *
- * 不能用 firstWindow()：官方版主窗口是 show=false 后异步创建的，且某些状态会先弹
- * onboarding/预览版说明窗口（URL 是 file: 或独立 dialog），firstWindow() 可能拿到它。
+ * 不能用 firstWindow()：主窗口是 show=false 后异步创建的，且未登录等状态会先弹
+ * 欢迎引导窗口（rc.7 为 file://welcome.html），firstWindow() 可能拿到它。
  * 这里按 URL 前缀挑 dsh-app:// 的窗口。
  */
 async function waitForAppWindow(app, timeout = 90000) {
@@ -139,11 +145,12 @@ const test = base.extend({
   electronApp: [async ({ mode }, use, testInfo) => {
     if (mode !== 'electron' || !ELECTRON_PATH) return use(undefined);
 
-    // 官方/eline 单实例锁是硬性的：已有实例在跑时，新进程会直接 quit()，Playwright 接不到窗口。
-    // 用 19387（桌面 host 的硬编码端口）判定，而不是按进程名找——后者会误伤用户手动开的实例。
-    if (await portInUse(DESKTOP_HOST_PORT)) {
-      testInfo.skip(true, `检测到桌面实例已在运行（127.0.0.1:${DESKTOP_HOST_PORT} 被占用）。`
-        + 'eline 有硬性单实例锁，请先彻底退出 ElineAI 桌面应用再跑 electron 项目。');
+    // SparkSeed 单实例锁是硬性的（Electron requestSingleInstanceLock）：已有实例在跑时，
+    // 新进程会直接 quit()，Playwright 接不到窗口。rc.7 起内部 host 改随机端口、19387
+    // 硬编码已移除，因此按映像名查进程判定，而不是按端口。
+    if (await desktopAppRunning()) {
+      testInfo.skip(true, `检测到桌面实例已在运行（${desktopImageName()} 进程存活）。`
+        + 'SparkSeed 有硬性单实例锁，请先彻底退出 SparkSeed 桌面应用再跑 electron 项目。');
     }
 
     purgeAccumulatedAuthCookies();
@@ -161,8 +168,8 @@ const test = base.extend({
     await new Promise(r => setTimeout(r, 2000));
     if (app.process().exitCode !== null) {
       throw new Error(`桌面进程启动后立即退出（exitCode=${app.process().exitCode}）。`
-        + `最常见原因：① 单实例锁被占用（127.0.0.1:${DESKTOP_HOST_PORT} 已被别的实例监听）；`
-        + '② 启动时的 cwd 下 .env 含 DSH_/XDG_ 等前缀键（官方版会读 .env 并抛错退出）。');
+        + `最常见原因：① 单实例锁被占用（已有 ${desktopImageName()} 进程在跑）；`
+        + '② 启动时的 cwd 下 .env 含 DSH_/XDG_ 等前缀键（应用会读 .env 并抛错退出）。');
     }
 
     await use(app);
@@ -181,12 +188,39 @@ const test = base.extend({
     let target = page;
     if (mode === 'electron') {
       if (!ELECTRON_PATH || !electronApp) {
-        testInfo.skip(true, '未配置 E2E_DSH_EXE，跳过 Electron 用例（设置后重跑: E2E_DSH_EXE=<exe路径>）');
+        testInfo.skip(true, '桌面端 exe 不可用：E2E_DSH_EXE 未配置、或配置的路径不存在'
+          + '（应用升级可能更换了安装位置），也未能在常见位置探测到。'
+          + '请更新 .env 的 E2E_DSH_EXE 后重跑。');
       }
       target = await waitForAppWindow(electronApp);
       // 桌面端内置认证；等 UI 就绪（新建会话按钮在首页与会话页都存在）
       await target.getByRole('button', { name: '新建会话' }).last().waitFor({ timeout: 30000 }).catch(() => {});
-      // eline 首载会弹「预览版说明」遮罩，不关会拦住所有点击
+
+      // rc.7 起 dock 页签布局按会话持久化到 localStorage（dsh.sidebar-right.v1.*），
+      // 终端页签另有全局绑定（dsh.terminal.binding.v1.*）：先前用例开的终端/文件页签
+      // 会在新一轮启动时恢复，顶掉会话的 对话/轨迹 视图与「开始」落地页。
+      // 每次拉起清一次并重载，恢复「每个用例干净 dock」的隔离假设（与 cookie 清理同思路）。
+      try {
+        const cleared = await target.evaluate(() => {
+          const kill = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (/^dsh\.sidebar-right\.v1\.|^dsh\.terminal\.binding\.v1\.|^dsh\.terminal\.close\.v1\./.test(k)) kill.push(k);
+          }
+          kill.forEach(k => localStorage.removeItem(k));
+          return kill.length;
+        });
+        if (cleared > 0) {
+          console.log(`[electron] 已清理 ${cleared} 个 dock/终端绑定 localStorage 键并重载窗口（rc.7 dock 持久化隔离）`);
+          await target.reload();
+          await target.getByRole('button', { name: '新建会话' }).last().waitFor({ timeout: 30000 }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn(`[electron] 清理 dock 持久化键失败（忽略，不影响用例）: ${e.message}`);
+      }
+
+      // 防御性兜底：个别部署首载会弹全屏遮罩（如命令行安装确认），不关会拦住点击。
+      // rc.7 已无「预览版说明」弹窗，正常情况下这里不会命中。
       const cont = target.getByRole('button', { name: '继续', exact: true }).first();
       if (await cont.isVisible().catch(() => false)) await cont.click({ timeout: 5000 }).catch(() => {});
     }
@@ -228,8 +262,7 @@ const test = base.extend({
  * 分级关闭桌面实例——全程有界、绝不抛错。
  *
  * 加固原因：社区版时代出现过「worker 拆卸超时 180s」导致后续 18 条用例被整体跳过。
- * 官方版会 spawn detached 的子 host，只杀父进程会留孤儿占住 19387，
- * 进而让下一轮 launch 撞单实例锁。
+ * 应用会 spawn detached 的子 host，只杀父进程会留孤儿，进而让下一轮 launch 撞单实例锁。
  */
 async function closeDesktopApp(app) {
   const pid = (() => { try { return app.process().pid; } catch { return null; } })();
@@ -255,9 +288,9 @@ async function closeDesktopApp(app) {
     await new Promise(r => setTimeout(r, 2000));
   }
 
-  // 4) 复查桌面 host 端口
-  if (await portInUse(DESKTOP_HOST_PORT)) {
-    console.warn(`[electron] ⚠ 关闭后 ${DESKTOP_HOST_PORT} 仍在监听，可能有残留桌面进程`);
+  // 4) 复查：确认没有残留的同名进程（占着单实例锁会让下一轮 launch 直接 quit）
+  if (await desktopAppRunning()) {
+    console.warn(`[electron] ⚠ 关闭后仍有 ${desktopImageName()} 进程存活，可能有残留桌面进程，下一轮 launch 会撞单实例锁`);
   }
 }
 

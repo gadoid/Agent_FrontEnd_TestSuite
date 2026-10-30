@@ -1,5 +1,5 @@
 // @ts-check
-// 探测脚本：连接 ElineAI 的 dsh web（默认 127.0.0.1:3080），
+// 探测脚本：连接 sparkseed 的 dsh web（默认 127.0.0.1:3080），
 // token 登录后输出各区域可交互元素结构（选择器考古用）。
 // 用法: node scripts/explore-eline.js [token]
 const { chromium } = require('@playwright/test');

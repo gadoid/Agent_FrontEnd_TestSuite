@@ -273,6 +273,10 @@ test.describe('右侧工作面板', () => {
     await pages.composer.send(`自动化测试(${Date.now().toString(36)})，请只回复：收到`);
     await pages.transcript.waitForReply(180000);
 
+    // rc.7 的「显示代码工作视图」开关决定会话是否提供 对话/轨迹 视图切换（默认关），
+    // 且其它用例会翻转它——先确保打开，不依赖机器历史状态
+    await pages.settings.ensureSwitchOn('显示代码工作视图');
+
     // 展开右侧栏（折叠时可选页签不渲染），常驻页签可见且可切换
     await pages.rightPanel.expand();
     const optional = await pages.rightPanel.expectTabsVisible(expect);

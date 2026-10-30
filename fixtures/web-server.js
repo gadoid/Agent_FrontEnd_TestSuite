@@ -18,7 +18,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { loadEnv, readEnv, llmEnv } = require('./env');
-const { portInUse, waitForPortInUse, waitForPortFree, servicePort, serviceHost, desktopExe, DESKTOP_HOST_PORT } = require('./ports');
+const { portInUse, waitForPortInUse, waitForPortFree, servicePort, serviceHost, desktopExe, desktopAppRunning } = require('./ports');
 
 loadEnv();
 
@@ -152,7 +152,7 @@ async function startWebServer({ logger = console.log } = {}) {
   };
 
   // 就绪判定：优先日志里的 `dsh web:` 行（顺带拿 token），兜底端口监听。
-  // eline 实测（2026-10）：服务**先监听端口、后打印 token 行**，因此端口就绪后
+  // rc.2 实测（2026-10）：服务**先监听端口、后打印 token 行**，因此端口就绪后
   // 还要再给日志一个出现窗口，否则 token 永远捕获不到（auth.setup 将无 token 可用）。
   let token = null;
   let exited = false;
@@ -178,9 +178,9 @@ async function startWebServer({ logger = console.log } = {}) {
     throw new Error(`等待 ${host}:${port} 监听超时。输出:\n${readLog().slice(-3000)}`);
   }
 
-  // 若桌面 host 端口也起来了说明有桌面实例在一起跑——记录但不阻拦（两者可共存）
-  if (await portInUse(DESKTOP_HOST_PORT)) {
-    logger(`[web-server] 注意：桌面 host 端口 ${DESKTOP_HOST_PORT} 也在监听（有桌面实例在跑）`);
+  // 若桌面实例也在跑给出提示（两者可共存，但共享 ~/.dsh 业务数据，web 轮可能被干扰）
+  if (await desktopAppRunning()) {
+    logger('[web-server] 注意：检测到桌面实例进程在跑（与 web 服务共享 ~/.dsh 业务数据）');
   }
 
   const info = { pid: child.pid, port, url: `http://${host}:${port}`, token, startedAt: new Date().toISOString() };

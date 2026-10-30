@@ -18,10 +18,10 @@ const patchState = () => {
 
 (async () => {
   const launch = () => new Promise((resolve) => {
-    spawn('cmd', ['/c', 'start', '', 'D:\\ElineAI\\eline.exe', '--remote-debugging-port=9222'], { shell: false, detached: true, stdio: 'ignore' }).unref();
+    spawn('cmd', ['/c', 'start', '', 'D:\\sparkseed\\sparkseed.exe', '--remote-debugging-port=9222'], { shell: false, detached: true, stdio: 'ignore' }).unref();
     setTimeout(resolve, 15000);
   });
-  spawn('cmd', ['/c', 'start', '', 'D:\\ElineAI\\eline.exe', '--remote-debugging-port=9222'], { shell: false, detached: true, stdio: 'ignore' }).unref();
+  spawn('cmd', ['/c', 'start', '', 'D:\\sparkseed\\sparkseed.exe', '--remote-debugging-port=9222'], { shell: false, detached: true, stdio: 'ignore' }).unref();
   await new Promise(r => setTimeout(r, 15000));
 
   const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');

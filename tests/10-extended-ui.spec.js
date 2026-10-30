@@ -290,10 +290,18 @@ test.describe('右侧工作面板', () => {
     const opened = await pages.rightPanel.openWorkspaceFiles();
     expect(opened, '文件面板应打开').toBe(true);
     if (typed) {
-      expect(await pages.rightPanel.filePanelContains('m10-probe.txt'), '终端建的文件应出现在文件面板').toBe(true);
+      // 终端就绪有竞态（大轮偶发首输未生效）：文件未出现时重点页签重输一次
+      let ok = await pages.rightPanel.filePanelContains('m10-probe.txt');
+      if (!ok) {
+        const termTab = page.locator('[role="tab"]').filter({ hasText: /cmd|pwsh|bash|终端/i }).first();
+        if (await termTab.isVisible().catch(() => false)) { await termTab.click().catch(() => {}); await page.waitForTimeout(800); }
+        await pages.rightPanel.terminalType('echo m10-probe > m10-probe.txt');
+        ok = await pages.rightPanel.filePanelContains('m10-probe.txt');
+      }
+      expect(ok, '终端建的文件应出现在文件面板').toBe(true);
 
       // 清理探针文件
-      const termTab = page.locator('[role="tab"]').filter({ hasText: /cmd|pwsh|bash/i }).first();
+      const termTab = page.locator('[role="tab"]').filter({ hasText: /cmd|pwsh|bash|终端/i }).first();
       if (await termTab.isVisible().catch(() => false)) { await termTab.click(); await page.waitForTimeout(600); }
       await pages.rightPanel.terminalType('del m10-probe.txt').catch(() => {});
     }

@@ -321,7 +321,14 @@ test.describe('用量/用时（anti）', () => {
       return [...document.querySelectorAll('[data-slot="conversation.composer"] button[aria-label]')]
         .filter(b => re.test(b.getAttribute('aria-label') || '')).length;
     }, STATS_SRC);
-    const before = await count();
+    // 统计条渲染有异步窗口：轮询等它出现（瞬时时读偶发 0 会触发 skip 并
+    // 在本文件的 serial 链上级联跳过后续全部反例）
+    let before = await count();
+    if (!before) {
+      await expect.poll(async () => count(), { timeout: 20000, intervals: [1000, 2000, 4000] })
+        .toBeGreaterThan(0).catch(() => {});
+      before = await count();
+    }
     test.skip(before === 0, '共享会话无统计条');
 
     // 快速连点两轮（含重复点击），应用不得崩溃/按钮不得消失
@@ -575,9 +582,10 @@ test.describe('设置中心（anti）', () => {
 
   test('M8-06A 主题切换往返无副作用（anti 反例）[双端]', async ({ pages }) => {
     test.setTimeout(180000);
-    // rc.6 实测基线（2026-10-28）：外观三按钮可点击但选择不生效（惰性控件）。
-    // 反例关注点改为：完整往返（深色→浅色→跟随系统）过程中页面外观不得半途变化、
-    // 设置面板不得崩溃/被关，状态保持一致。
+    // rc.7 实测基线（2026-10-30）：主题切换**即时应用**（rc.6 时代为惰性控件不生效，
+    // 旧基线「亮度不得变化」已随该修复失效）。
+    // 反例关注点改为：完整往返（深色→浅色→跟随系统）过程设置面板不得崩溃/被关，
+    // 每次切换都能读到有效亮度，深浅两档读数应有明显区分（主题真的被应用）。
     await pages.sidebar.openSettings();
     const lum0 = await pages.settings.readLuminance();
 
@@ -585,10 +593,11 @@ test.describe('设置中心（anti）', () => {
     const lightLum = await pages.settings.switchTheme('浅色');
     const backLum = await pages.settings.switchTheme('跟随系统');
 
-    test.info().annotations.push({ type: 'note', description: `亮度: 初始${lum0} 深${darkLum} 浅${lightLum} 复原${backLum}（rc.6 实测恒定，主题应用未实现）` });
-    expect(Math.abs(darkLum - lum0), '切深色后亮度不应变化（rc.6 基线：主题不应用）').toBeLessThanOrEqual(5);
-    expect(Math.abs(lightLum - lum0), '切浅色后亮度不应变化（rc.6 基线：主题不应用）').toBeLessThanOrEqual(5);
-    expect(Math.abs(backLum - lum0), '往返复原后亮度应一致').toBeLessThanOrEqual(5);
+    test.info().annotations.push({ type: 'note', description: `亮度: 初始${lum0} 深${darkLum} 浅${lightLum} 复原${backLum}（rc.7 实测主题即时应用）` });
+    for (const [name, v] of [['深色', darkLum], ['浅色', lightLum], ['跟随系统', backLum]]) {
+      expect(v, `切${name}后应能读到有效亮度`).toBeGreaterThan(0);
+    }
+    expect(Math.abs(darkLum - lightLum), '深浅两档亮度应有明显区分（主题被应用）').toBeGreaterThan(30);
     expect(await pages.settings.isOpen(), '主题往返后设置面板应仍可用').toBe(true);
     await pages.settings.close();
   });
@@ -692,7 +701,12 @@ test.describe('右侧工作面板（anti）', () => {
   test('M8-07A 右栏页签往返幂等（anti 反例）[双端]', async ({ page, pages }) => {
     test.setTimeout(300000);
     await ensureReplySession(page, pages);
+    // rc.7 的「显示代码工作视图」开关决定会话是否提供 对话/轨迹 视图切换（默认关），
+    // 且其它用例会翻转它——先确保打开，不依赖机器历史状态
+    await pages.settings.ensureSwitchOn('显示代码工作视图');
     await pages.rightPanel.expand();
+    // rc.7 起 dock 页签跨重启持久化：先前用例开的终端/文件页签会遮住 对话/轨迹，先清掉
+    await pages.rightPanel.closeRestoredTabs();
     await pages.rightPanel.expectTabsVisible(expect);
     for (let i = 0; i < 2; i++) {
       await pages.rightPanel.openTab('轨迹');
@@ -714,6 +728,8 @@ test.describe('右侧工作面板（anti）', () => {
   test('M8-14A 浏览器入口按形态存在性断言（anti 反例）[双端]', async ({ mode, pages }) => {
     await pages.sidebar.newSession();
     await pages.rightPanel.expand();
+    // rc.7 起 dock 页签跨重启持久化：先清掉恢复的终端/文件页签，让「开始」落地页露出来
+    await pages.rightPanel.closeRestoredTabs();
     if (mode === 'electron') {
       // 桌面端 webview 支持 → 入口应存在（缺失即部署回退）
       await expect(pages.rightPanel.browserEntry(), '桌面端应有「浏览器」入口').toBeVisible({ timeout: 10000 });

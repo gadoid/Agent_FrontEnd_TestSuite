@@ -6,16 +6,41 @@
  * `~/.dsh/.dsh-desktop-runtime.json`（「上次异常退出」残留清理）。
  * **官方版完全没有该文件**（asar 内 childPid/desktopPid/processIdentity 均 0 命中），
  * 那套机制对官方版是死代码，已删除；只保留端口相关的通用能力。
+ *
+ * SparkSeed（v0.2.0-rc.7）变更：桌面内部 host 不再硬编码 19387（改随机端口），
+ * 判定「桌面实例是否在跑」改为按映像名查进程（desktopAppRunning）。
  */
+const { execFile } = require('child_process');
 const net = require('net');
+const path = require('path');
 const { loadEnv, readEnv } = require('./env');
 
 loadEnv();
 
-/** 官方版桌面 GUI 内部 host 的监听端口（asar 内硬编码，不可配置）。
- *  用它而不是「按进程名找」来判定桌面实例是否在跑：既能覆盖 GUI 在跑，
- *  也能覆盖「GUI 已退出但 detached 的子 host 还活着」，且不会误伤用户手动开的实例。 */
-const DESKTOP_HOST_PORT = 19387;
+/** 桌面应用映像名（取 E2E_DSH_EXE 的文件名，如 sparkseed.exe） */
+function desktopImageName(exe = desktopExe()) {
+  if (!exe) return '';
+  return path.basename(exe.replace(/\//g, path.sep));
+}
+
+/** 是否已有桌面应用实例在跑（Windows 按映像名 tasklist 查询）。
+ *  SparkSeed 的单实例锁是 Electron requestSingleInstanceLock（按 userData 命名锁），
+ *  已有实例（无论谁起的）时新进程直接 quit()，因此跑用例前必须确认无实例存活。 */
+function desktopAppRunning(exe = desktopExe()) {
+  const image = desktopImageName(exe);
+  if (!image) return Promise.resolve(false);
+  if (process.platform !== 'win32') {
+    // 非 Windows 没有映像名查询需求（套件当前只在 Windows 跑），保守返回 false
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    execFile('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'],
+      { windowsHide: true }, (err, stdout) => {
+        if (err) return resolve(false);
+        resolve(String(stdout).toLowerCase().includes(`"${image.toLowerCase()}"`));
+      });
+  });
+}
 
 /** 从 E2E_URL 派生服务端口（迁移到非默认端口部署时无需改代码） */
 function servicePort() {
@@ -71,7 +96,8 @@ function desktopExe() {
 }
 
 module.exports = {
-  DESKTOP_HOST_PORT,
+  desktopImageName,
+  desktopAppRunning,
   servicePort,
   serviceHost,
   portInUse,

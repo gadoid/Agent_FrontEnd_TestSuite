@@ -2,19 +2,17 @@
 /**
  * 设置弹窗组件
  *
- * eline 实测（2026-10，eline.exe v0.2.0-rc.2 定制构建）：左侧导航列表
- * （DOM：div[class*="navList"] > button），本部署 4 项：
- *   通用设置 / 模型 / 内置插件 / Agent 预设
+ * 实测（2026-10-30，sparkseed v0.2.0-rc.7）：左侧导航列表
+ * （DOM：div[class*="navList"] > button），本部署 5 项：
+ *   账号 / 通用设置 / 模型 / 内置插件 / Agent 预设
  *
- * **没有独立的「应用/保存」按钮**——所有设置改动即时生效落盘（主题/字号/权限默认值）。
- * 「应用按钮」语义由即时生效控件承载：主题三态按钮、增大/减小字号 等，见下方对应方法。
- *
+ * rc.7 变更：新增「账号」页签；模型页签 provider 行（如 sparkseed）带「编辑」目录卡片。
  * data-slot：settings.header / settings.close / settings.section / settings.general.item
  */
 const { BasePage } = require('./BasePage');
 
 /** 本部署实测存在的设置导航项（缺失的项会被优雅跳过，不硬失败） */
-const NAV_ITEMS = ['通用设置', '模型', '内置插件', 'Agent 预设'];
+const NAV_ITEMS = ['账号', '通用设置', '模型', '内置插件', 'Agent 预设'];
 
 class SettingsDialogPage extends BasePage {
   dialog() {
@@ -257,6 +255,22 @@ class SettingsDialogPage extends BasePage {
       await control.click({ timeout: 8000 }).catch(() => control.click({ force: true, timeout: 5000 }));
       await this.page.waitForTimeout(600);
     }
+    return this;
+  }
+
+  /** 确保开关处于指定状态并关闭设置面板（幂等，不翻转已就位的开关）。
+   *  用途：rc.7 的「显示代码工作视图」开关决定会话是否提供 对话/轨迹 视图切换，
+   *  右栏页签类用例先调它，避免依赖机器上的历史开关状态（与用例间翻转顺序解耦）。 */
+  async ensureSwitchOn(name) {
+    await this.ensureOpen();
+    await this.openTab('通用设置').catch(() => {});
+    const control = this._switchControl(name);
+    if (await control.isVisible().catch(() => false)
+      && (await this._controlState(control)) !== 'true') {
+      await control.click({ timeout: 8000 }).catch(() => control.click({ force: true, timeout: 5000 }));
+      await this.page.waitForTimeout(600);
+    }
+    await this.close().catch(() => {});
     return this;
   }
 

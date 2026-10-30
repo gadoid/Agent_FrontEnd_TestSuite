@@ -4,7 +4,7 @@ const { _electron } = require('@playwright/test');
 
 (async () => {
   const app = await _electron.launch({
-    executablePath: 'D:/ElineAI/eline.exe',
+    executablePath: 'D:/sparkseed/sparkseed.exe',
     cwd: 'C:/Users/123/AppData/Local/Temp/dsh-e2e-cwd',
     timeout: 60000,
   });

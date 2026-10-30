@@ -156,7 +156,14 @@ class PluginManagerPage extends BasePage {
     return this.page.getByText(/^v\d[\w.\-]*$/);
   }
 
-  /** 组件行启停控件（aria「启用组件 X」；平时隐藏，hover 组件行揭示） */
+  /** 插件级启用控件（rc.7：详情页右上 aria「启用 {插件名}」；已启用时为「停用 {插件名}」） */
+  pluginEnableToggle() {
+    return this.page.locator('[data-slot="plugins.detail.actions"] button[aria-label^="启用 "], button[aria-label^="启用 "]')
+      .first();
+  }
+
+  /** 组件行启停控件（rc.6 及以前：aria「启用组件 X」；rc.7 起组件行只渲染状态文案，
+   *  启停收敛到插件级控件——保留定位器供旧部署兼容） */
   partToggle(name) {
     return this.page.locator(`button[aria-label="启用组件 ${name}"]`).first();
   }

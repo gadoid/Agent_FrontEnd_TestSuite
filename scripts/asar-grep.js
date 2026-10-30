@@ -1,7 +1,7 @@
 // @ts-check
 // 在 asar 全包里搜指定字符串（默认 deepseek-flash / model-lock），定位引用来源。
 const { execFileSync } = require('child_process');
-const ASAR = process.env.ASAR_PATH || 'D:\\ElineAI\\resources\\app.asar';
+const ASAR = process.env.ASAR_PATH || 'D:\\sparkseed\\resources\\app.asar';
 const RD = 'scripts/asar-read.js';
 const NEEDLES = (process.argv[2] || 'deepseek-flash,model-lock,modelLock').split(',');
 

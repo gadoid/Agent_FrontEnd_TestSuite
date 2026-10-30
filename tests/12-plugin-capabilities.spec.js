@@ -15,7 +15,7 @@
  *     openDetailWithParts() 逐个探测而不是硬编码插件名。
  *   · 「添加插件」在列表页内联展开（非弹窗）：输入框 aria-label「包名或地址」（placeholder
  *     「例如 {示例包名}」）+「安装」按钮（空输入时禁用）+「插件安装引导和示例」展开
- *     （示例 eline-plugin-whale-pet、安全提示）+「安装源」选择器。
+ *     （示例 sparkseed-plugin-whale-pet、安全提示）+「安装源」选择器。
  *   · 设置→内置插件：只读 inventory（intro「查看内置部署的插件列表」+ 搜索「搜索插件」+
  *     分组计数「N 个」），配置页在侧栏插件页，此处无组件启停控件。
  */
@@ -57,8 +57,12 @@ test.describe('M4 插件能力', () => {
 
     await expect(pages.plugins.backToListButton()).toBeVisible();
     await expect(pages.plugins.partsTitle()).toBeVisible();
-    await expect(pages.plugins.partsCountText()).toBeVisible();          // 共 N 个 · N 运行中
-    await expect(pages.plugins.partToggles().first()).toBeAttached();    // aria「启用组件 X」（不点击）
+    await expect(pages.plugins.partsCountText()).toBeVisible();          // 共 N 个 · N 运行中/已停用
+    // 启停控件（不点击）：rc.7 为插件级 aria「启用 {插件名}」；rc.6 及以前为组件级「启用组件 X」
+    const enable = await pages.plugins.pluginEnableToggle().isVisible().catch(() => false);
+    const partLevel = (await pages.plugins.partToggles().count()) > 0;
+    test.info().annotations.push({ type: 'note', description: `启停控件形态: 插件级=${enable} 组件级=${partLevel}` });
+    expect(enable || partLevel, '详情页应有插件级或组件级启停控件').toBe(true);
 
     // 组件运行状态词（运行中/已停用/…）至少出现一种
     const body = await pages.sidebar.page.evaluate(() => document.body.innerText);
