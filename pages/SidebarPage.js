@@ -120,6 +120,12 @@ class SidebarPage extends BasePage {
     return (await sel.count()) ? (await sel.first().innerText()).trim() : '';
   }
 
+  /** 当前选中会话行的 data-row-key（session:<uuid>，标题被 LLM 改写也不变的树钩子；无选中返回 ''） */
+  async selectedSessionKey() {
+    const sel = this.page.locator('div[role="treeitem"][data-row-key^="session:"][aria-selected="true"]');
+    return (await sel.count()) ? ((await sel.first().getAttribute('data-row-key')) || '') : '';
+  }
+
   /** 搜索按钮（点击展开搜索框） */
   searchButton() {
     return this.page.getByRole('button', { name: '搜索会话' });

@@ -23,6 +23,7 @@
  * M9-06 Agent 预设切换（eline 五模式：外贸专家/标准/PTC/极简/创造）
  * M9-07 模型选择（当前模型与可选列表）
  * M9-08 选择工作区按钮（eline 恢复的常驻选择器：当前工作区/菜单/添加工作区入口）
+ * M9-09 工作区树按目录层级嵌套渲染（父/子目录各加为工作区 → 树形缩进）
  */
 const { test, expect } = require('../fixtures/app.fixtures');
 const { createWorkspace, deleteWorkspace } = require('../fixtures/workspace-api');
@@ -180,5 +181,62 @@ test.describe('工作区', () => {
     await w.openPickerMenu();
     await w.pickWorkspace(current);
     expect(await w.currentWorkspace(), '重新选中后按钮文本应不变').toBe(current);
+  });
+
+  test('M9-09 工作区树按目录层级嵌套渲染（父/子目录工作区）[双端]', async ({ page, pages }) => {
+    test.setTimeout(120000);
+    const w = pages.workspace;
+
+    // 工作树语义：父目录加为工作区，其内的子目录也加为工作区 →
+    // 「按工作区树」应把子工作区渲染成父级的下一层（子行缩进一级且紧跟父行、父级展开）；
+    // 「按工作区」则同层扁平作对照。层级由渲染层用缩进/顺序表达——
+    // 实测（2026-10 探针）DOM 上两行仍是兄弟节点，不能按 DOM 祖先断言。
+    const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-wstree-p-'));
+    const childDir = path.join(parentDir, `dsh-wstree-c-${Date.now().toString(36)}`);
+    fs.mkdirSync(childDir, { recursive: true });
+    const parent = await createWorkspace(pages.sidebar.page, parentDir);
+    const child = await createWorkspace(pages.sidebar.page, childDir);
+    const pId = parent.workspace.workspaceId;
+    const cId = child.workspace.workspaceId;
+
+    /** 工作区树快照：key / 缩进(px) / 展开态 / 树中顺序 */
+    const snap = () => page.evaluate(() =>
+      [...document.querySelectorAll('div[role="tree"] div[role="treeitem"][data-row-key^="workspace:"]')]
+        .map((el) => ({
+          key: el.getAttribute('data-row-key'),
+          indent: parseInt(getComputedStyle(el).paddingLeft, 10) || 0,
+          expanded: el.getAttribute('aria-expanded'),
+        })));
+
+    try {
+      // 切到「按工作区树」分组（正则精确匹配，防 hasText 前缀误命中「按工作区树/按工作区」）
+      await pages.sidebar.openViewOptionsMenu();
+      await pages.sidebar.pickViewOption(/^按工作区树$/);
+      await expect(pages.sidebar.workspaceRows().first()).toBeVisible({ timeout: 15000 });
+
+      const rows = await snap();
+      const pRow = rows.find((r) => r.key === `workspace:${pId}`);
+      const cRow = rows.find((r) => r.key === `workspace:${cId}`);
+      expect(pRow, '父工作区行应出现').toBeTruthy();
+      expect(cRow, '子工作区行应出现').toBeTruthy();
+      expect(pRow.expanded, '父工作区应自动展开以显示子级').toBe('true');
+      expect(rows.indexOf(cRow) - rows.indexOf(pRow), '子行应紧跟父行渲染').toBe(1);
+      expect(cRow.indent, '子工作区应比父级缩进一层（树形渲染）').toBeGreaterThan(pRow.indent);
+      test.info().annotations.push({ type: 'note', description: `树形分组缩进: 父${pRow.indent}px / 子${cRow.indent}px` });
+
+      // 对照：「按工作区」分组下父子同层扁平，不表达目录层级
+      await pages.sidebar.openViewOptionsMenu();
+      await pages.sidebar.pickViewOption(/^按工作区$/);
+      await expect(pages.sidebar.workspaceRows().first()).toBeVisible({ timeout: 15000 });
+      const flat = await snap();
+      const fp = flat.find((r) => r.key === `workspace:${pId}`);
+      const fc = flat.find((r) => r.key === `workspace:${cId}`);
+      expect(!!fp && !!fc && fc.indent === fp.indent, '按工作区分组下父子应同层（无层级缩进）').toBe(true);
+    } finally {
+      // RPC 兜底清理：先删子再删父（父删除对子级的行为未定义，避免连带）；临时目录随父一并删
+      if (cId) await deleteWorkspace(pages.sidebar.page, cId).catch(() => {});
+      if (pId) await deleteWorkspace(pages.sidebar.page, pId).catch(() => {});
+      try { fs.rmSync(parentDir, { recursive: true, force: true }); } catch { /* 忽略 */ }
+    }
   });
 });

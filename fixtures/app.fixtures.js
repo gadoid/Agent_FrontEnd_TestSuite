@@ -24,6 +24,7 @@ const path = require('path');
 const { createPages } = require('../pages');
 const { loadEnv, readEnv, llmEnv } = require('./env');
 const { DESKTOP_HOST_PORT, portInUse, desktopExe } = require('./ports');
+const { describeTitle } = require('./test-data/case-catalog');
 
 // 机器相关配置统一走 .env（见 .env.example），命令行/CI 环境变量优先
 loadEnv();
@@ -55,12 +56,45 @@ const ELECTRON_ARGS = (readEnv('E2E_ELECTRON_ARGS', ['DSH_ELECTRON_ARGS']) || ''
 /** web 模式下应用地址 */
 const APP_URL = process.env.E2E_URL || 'http://127.0.0.1:3080';
 
+/** Electron 档案的 Chromium cookie 库（host 127.0.0.1 的 dsh-auth-* 都积在这里） */
+const COOKIE_DB = path.join(
+  process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+  'eline', 'Network', 'Cookies',
+);
+
+/**
+ * 清理累积的 dsh-auth-* cookie（每次启动 host 都签发**唯一随机名**的新 cookie，
+ * Chromium 永不覆盖 → 罐子单调膨胀；/welcome 握手把全部历史 cookie 带上，累计到
+ * ~16KB（实测 71 个 ≈ 15.7KB）就会超过 Node 默认 maxHeaderSize，host 拒绝请求，
+ * 表现为启动期 `desktop welcome: Web authentication failed` 硬崩溃。
+ * 每次拉起前清一次，罐子恒定 ~1 个，测试轮与启动次数解耦。登录态在
+ * .credentials.yaml，不受此清理影响（已实测）。
+ */
+function purgeAccumulatedAuthCookies() {
+  try {
+    if (!fs.existsSync(COOKIE_DB)) return;
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(COOKIE_DB);
+    const info = db.prepare("DELETE FROM cookies WHERE name LIKE 'dsh-auth-%'").run();
+    db.close();
+    if (info.changes > 0) console.log(`[electron] 已清理 ${info.changes} 个累积 dsh-auth-* cookie（防请求头超 16KB 上限）`);
+  } catch (e) {
+    console.warn(`[electron] 清理 dsh-auth cookie 失败（忽略，不影响用例）: ${e.message}`);
+  }
+}
+
 /** 中性 cwd：官方版若以项目根为 cwd 会读到 .env 里的 DSH_ 前缀键并启动失败 */
 const RUNTIME_CWD = path.join(os.tmpdir(), 'dsh-e2e-cwd');
 
 /** 用例结束后的窗口停留时长：保持页面/桌面实例存活，供人工对着最终画面快速审查。
  *  实际等待位置见下方 page 夹具（必须在拆卸之前，否则窗口已关、看不到东西）。 */
 const TEST_PAUSE_MS = 10_000;
+
+/** 快用例的最短观测时长（ms）：用例执行完到结束截图不足该时长时补足等待——
+ *  太短的自动化执行一闪而过，截图前多停一会便于观察过程、也等 UI 动画收敛。
+ *  仅对「通过」的用例生效（失败/超时立即截图出报告，不拖延）；0 = 关闭。
+ *  实际等待位置见下方 page 夹具。 */
+const MIN_TEST_DURATION_MS = Number(readEnv('E2E_MIN_TEST_MS') ?? 6000) || 0;
 
 /**
  * 等待并返回应用主窗口。
@@ -91,6 +125,16 @@ const test = base.extend({
   /** 当前模式，由项目的 use.mode 注入，默认 web */
   mode: ['web', { option: true }],
 
+  /**
+   * 报告增强①——用例描述：按用例标题里的 ID（M8-01 / M3-01A…）到 TEST-CASES.md
+   * 取「标题；前置；步骤；预期」写入报告注解，HTML 报告用例详情页显示「用例描述」。
+   */
+  caseDescription: [async ({ }, use, testInfo) => {
+    const desc = describeTitle(testInfo.title);
+    if (desc) testInfo.annotations.push({ type: '用例描述', description: desc });
+    await use();
+  }, { auto: true }],
+
   /** electron 模式下的应用实例（web 模式或未配置路径时为 undefined） */
   electronApp: [async ({ mode }, use, testInfo) => {
     if (mode !== 'electron' || !ELECTRON_PATH) return use(undefined);
@@ -101,6 +145,8 @@ const test = base.extend({
       testInfo.skip(true, `检测到桌面实例已在运行（127.0.0.1:${DESKTOP_HOST_PORT} 被占用）。`
         + 'eline 有硬性单实例锁，请先彻底退出 ElineAI 桌面应用再跑 electron 项目。');
     }
+
+    purgeAccumulatedAuthCookies();
 
     fs.mkdirSync(RUNTIME_CWD, { recursive: true });
     const app = await _electron.launch({
@@ -126,10 +172,10 @@ const test = base.extend({
   /**
    * 覆盖默认 page：electron 模式返回应用主窗口。
    *
-   * 用例结束后的 10s 停留放在**这里**（而不是一个 auto 夹具）：
+   * 用例结束后的报告增强动作放在**这里**（而不是一个 auto 夹具）：
    * 本夹具依赖 page/electronApp，拆卸顺序在它们**之前**，因此这段时间里窗口仍然开着
-   * ——目的是让人能对着最终画面快速审查。放在 auto 夹具里的话，它声明在最前、拆卸在最后，
-   * 等到那时窗口早已关闭，屏幕上看不到任何东西。
+   * ——结束截图与人工审查停留都需要窗口存活；放在 auto 夹具里的话，它声明在最前、
+   * 拆卸在最后，等到那时窗口早已关闭。
    */
   page: async ({ page, mode, electronApp }, use, testInfo) => {
     let target = page;
@@ -146,6 +192,26 @@ const test = base.extend({
     }
 
     await use(target);
+
+    // —— 报告增强②——快用例补足最短观测时长：
+    // 执行时间不足 MIN_TEST_DURATION_MS 的用例（失败/超时除外）等到阈值再截图，
+    // 避免「一闪而过」的执行拍不出有意义的最终画面。
+    if (testInfo.status === 'passed' && MIN_TEST_DURATION_MS > 0) {
+      const elapsed = Date.now() - new Date(testInfo.startTime).getTime();
+      if (elapsed < MIN_TEST_DURATION_MS) {
+        await new Promise(r => setTimeout(r, MIN_TEST_DURATION_MS - elapsed));
+      }
+    }
+
+    // —— 报告增强③——结束截图：不论成败都把「执行完毕时」的画面附进报告
+    // （失败场景另有 Playwright 自带的失败截图，两张互补）。绝不因截图失败影响用例结果。
+    try {
+      const file = testInfo.outputPath('结束截图.png');
+      await target.screenshot({ path: file, timeout: 10_000 });
+      await testInfo.attach('结束截图', { path: file, contentType: 'image/png' });
+    } catch (e) {
+      console.warn(`[report] 「${testInfo.title}」结束截图失败（不影响用例结果）: ${e.message}`);
+    }
 
     // 窗口仍存活，先停 10s 供人工查看最终状态，再交给上层夹具拆卸
     await new Promise(r => setTimeout(r, TEST_PAUSE_MS));

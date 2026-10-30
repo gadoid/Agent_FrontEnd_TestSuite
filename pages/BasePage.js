@@ -68,18 +68,32 @@ class BasePage {
    * 带 `aria-hidden` 遮罩拦截所有点击——不关掉的话后续任何 click 都会超时。
    * 注意：弹层在应用骨架渲染完成后才异步挂载，立即用 count() 查会漏掉
    * （遮罩还在、按钮还没出来），必须显式等它出现。已消解过或本就不弹时静默跳过。
+   *
+   * web 形态实测（2026-10-29）：点「继续」会触发 settings/mutate 保存确认状态，
+   * 即使 HTTP 200 弹窗也可能驻留并显示红字「暂时无法保存确认状态，请重试」，
+   * 遮罩继续拦截一切点击 —— 因此点完要复查，仍驻留就「重试点击 / Esc」交替，
+   * 全部失败时快速抛错（指明根因），而不是让后续用例在遮罩下一个个撞超时。
    */
   async dismissOnboarding() {
-    const cont = this.page.getByRole('button', { name: '继续', exact: true }).first();
+    const page = this.page;
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: '预览版说明' });
+    const cont = page.getByRole('button', { name: '继续', exact: true }).first();
+    const blocking = async () => (await dialog.isVisible().catch(() => false))
+      || (await cont.isVisible().catch(() => false));
+
+    // 弹层异步挂载：先等「继续」按钮出现（不弹或已消解时等满 6s 跳过）
     const appeared = await cont.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false);
     if (appeared) {
-      await cont.click({ timeout: 5000 }).catch(() => {});
-      await this.page.waitForTimeout(500);
+      for (let i = 0; i < 5 && (await blocking()); i++) {
+        await cont.click({ timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(700);
+        if (await blocking()) await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(400);
+      }
     }
-    // 兜底：遮罩还在就按 Esc
-    if (await this.page.locator('[aria-hidden="true"][class*="mask"]').count().catch(() => 0)) {
-      await this.page.keyboard.press('Escape').catch(() => {});
-      await this.page.waitForTimeout(300);
+    if (await blocking()) {
+      throw new Error('「预览版说明」弹窗无法关闭：点「继续」后仍驻留（红字提示保存确认状态失败），'
+        + '遮罩会拦截后续一切点击。请先排查应用端确认状态保存失败的原因（web 服务/存储），再重跑。');
     }
     return this;
   }

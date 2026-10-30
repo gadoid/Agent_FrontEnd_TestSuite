@@ -28,6 +28,11 @@ module.exports = defineConfig({
 
   expect: { timeout: 15_000 },
 
+  // 全局兜底超时 60s（默认 30s 不够）：页夹具在用例结束后还要做报告增强
+  // （快用例补足最短观测时长 + 结束截图 + 10s 人工审查停留，见 fixtures/app.fixtures.js），
+  // 长用例（真实 LLM 等）各自 test.setTimeout 覆盖此值
+  timeout: 60_000,
+
   use: {
     baseURL: process.env.E2E_URL || 'http://127.0.0.1:3080',
     // 应用 UI 文案随浏览器语言切换，固定中文保证选择器稳定

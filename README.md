@@ -15,7 +15,7 @@ eline 定制构建）的 Playwright 端到端测试套件，**同一套用例支
 | M1 | 安装/启动 | 服务健康、未认证拦截（401）、关键 UI 就绪 |
 | M2 | 登录/认证 | token 换 cookie、裸请求被拒、认证态可用 |
 | M3 | 对话 | 真实 LLM 流式回复断言、多轮上下文、会话留存 |
-| M4 | 插件管理 | 侧栏插件页、条目清单（启停控件随部署） |
+| M4 | 插件管理/插件能力 | 侧栏插件页、清单、启停（随部署）、说明指引、插件详情组件清单、安装引导与安装源、设置-内置插件只读清单 |
 | M5 | 知识库命中 | 附件上传、随机标记问答验证命中 |
 | M6 | 消息操作 | 复制（剪贴板）、点赞、点踩表单、会话分支 |
 | M7 | 用量/用时 | tok 解析（K/M）、秒数、明细弹层、会话统计条 |
@@ -79,8 +79,8 @@ eline 内置「易链 AI」中转 provider（settings 里的 `eline-relay`，ant
 
 ```
 fixtures/          # 双模式夹具 + env 加载（含 .env 守卫）+ 端口工具 + web 服务生命周期 + 凭据工具
-pages/             # 11 个页面对象（一组件一文件，spec 零自建 locator）
-tests/             # 9 个模块 spec + web-server / auth 两个 setup
+pages/             # 13 个页面对象（一组件一文件，spec 零自建 locator）
+tests/             # 12 个模块 spec + web-server / auth 两个 setup
 scripts/           # 选择器考古用一次性探测脚本（explore-eline*.js / asar-read.js）
 ```
 
@@ -90,8 +90,22 @@ scripts/           # 选择器考古用一次性探测脚本（explore-eline*.js
 - **选择器只用语义钩子**：eline 前端广泛使用 `data-slot`、`data-row-key`、`data-chat-flow-kind`、`aria-label`，套件全部挂这些，**不依赖构建产物 hash 类名**
 - **部署差异优雅降级**：浏览器页签（Electron webview 专属）、推理等级切换行（模型目录下发）、dock 控件等，缺失时记录差异而非误报缺陷
 
+## 报告增强（用例描述 / 结束截图 / 最短观测时长）
+
+HTML 报告（`npm run report`）为每条用例补充三类信息，实现见 `fixtures/app.fixtures.js`
+（描述提取见 `fixtures/test-data/case-catalog.js`）：
+
+| 增强 | 说明 |
+|------|------|
+| **用例描述** | 按用例标题里的 ID（`M8-01` / `M3-01A`…）到 **TEST-CASES.md** 自动提取「标题；前置；步骤；预期」，以注解形式显示在用例详情页（标签「用例描述」）。文档是单一事实源，改 TEST-CASES.md 即改报告，无需动代码 |
+| **结束截图** | 每条用例（通过/失败，web 与 electron）在夹具拆卸时、窗口仍存活时截图，以附件「结束截图」内嵌进报告；失败场景另有 Playwright 自带的失败截图与 trace 互补。纯 API 校验用例（M1-01/02、M2-01/02）无 UI 可截，不产生截图 |
+| **最短观测时长** | 执行时间不足 `E2E_MIN_TEST_MS`（默认 6000，0 = 关闭）的**通过**用例补足等待后再截图——太短的自动化执行一闪而过，补等待便于观察过程、也等 UI 动画收敛。失败/超时不补，尽快出报告 |
+
+全局兜底超时因此从默认 30s 放宽到 60s（长用例各自 `test.setTimeout` 覆盖）。
+
 ## 工程化细节
 
 - 中性 cwd（规避 .env 陷阱）、桌面实例端口探测（规避单实例锁）、分级有界关闭（防 worker 拆卸超时拖垮后续用例）、用例间 10s 缓冲、真实 LLM 波动的 retries 兜底
+- **electron 夹具每次拉起前清理累积的 `dsh-auth-*` cookie**：host 每次启动签发唯一随机名的 cookie，Chromium 罐子只增不减，累计 ~71 个（≈15.7KB）会顶到 Node 默认 16KB 请求头上限，welcome 握手被拒 → 应用启动即崩（`desktop welcome: Web authentication failed`）。登录态在 `.credentials.yaml`，不受清理影响
 - eline 首载会弹「预览版说明」遮罩（拦截所有点击）：`BasePage.dismissOnboarding()` 与 electron 夹具都会自动关掉
 - 真实 LLM 用例打「易链 AI」中转，实测偶发「正在重试模型请求（n/5）」后成功，retries 已兜底

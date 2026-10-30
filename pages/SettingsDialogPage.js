@@ -203,12 +203,14 @@ class SettingsDialogPage extends BasePage {
   }
 
   /* ---------- 设置功能开关（M10）：点击即生效，用例需翻转后复原 ----------
-   * 实测控件形态不一：显示代码工作视图/上传 Session Log 是 role=switch（aria-checked），
-   * 排队发送是普通 button（aria-pressed）。统一定位：含名称文本的 switch 或 button。 */
+   * 实测控件形态不一：显示代码工作视图是 role=switch（aria-checked），
+   * 排队发送是普通 button（aria-pressed）。统一定位：可见设置对话框内、含名称文本的 switch 或 button。
+   * 必须收拢到可见对话框内——页面存在对话框外/隐藏的同名元素，全局定位会解析到空状态元素。 */
   _switchControl(name) {
-    return this.page.locator('[role="switch"]').filter({ hasText: new RegExp(name) })
-      .or(this.page.locator('button[aria-pressed]').filter({ hasText: new RegExp(name) }))
-      .or(this.page.getByRole('switch', { name })).first();
+    const dlg = this.page.locator('[role="dialog"]').filter({ visible: true }).last();
+    return dlg.locator('[role="switch"]').filter({ hasText: new RegExp(name) })
+      .or(dlg.locator('button[aria-pressed]').filter({ hasText: new RegExp(name) }))
+      .or(dlg.getByRole('switch', { name })).first();
   }
 
   async _controlState(control) {
@@ -219,7 +221,12 @@ class SettingsDialogPage extends BasePage {
   async switchState(name) {
     await this.ensureOpen();
     await this.openTab('通用设置').catch(() => {});
-    return this._controlState(this._switchControl(name));
+    const control = this._switchControl(name);
+    if (!(await control.isVisible().catch(() => false))) {
+      await this.ensureOpen();
+      await control.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    }
+    return this._controlState(control);
   }
 
   /** 读开关状态并翻转一次，返回 {before, after}。
@@ -229,7 +236,10 @@ class SettingsDialogPage extends BasePage {
     await this.ensureOpen();
     await this.openTab('通用设置').catch(() => {});
     const control = this._switchControl(name);
-    await control.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    if (!(await control.isVisible().catch(() => false))) {
+      await this.ensureOpen();
+      await control.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    }
     const before = await this._controlState(control);
     await control.click({ timeout: 8000 }).catch(() => control.click({ force: true, timeout: 5000 }));
     await this.page.waitForTimeout(700);
@@ -302,17 +312,41 @@ class SettingsDialogPage extends BasePage {
     return this;
   }
 
-  /* ---------- 模型提供商编辑器（M10） ---------- */
-  /** 打开「编辑 中转站」弹层（含 模型ID/显示名称/添加模型/保存/取消） */
+  /* ---------- 模型提供商编辑器（M10） ----------
+   * rc.6 实测（2026-10-28）：模型页签每行提供商（如 elineAI）带「编辑」按钮，
+   * 点开为**只读目录卡片**——展示「模型目录」（由 elineAI 下发，含 取消/保存），无输入框、无「添加模型」。
+   * 注意页面存在隐藏的同名「编辑」按钮（getByRole 可能命中隐藏者），必须过滤可见元素。 */
+  providerEditButton() {
+    return this.page.locator('[role="dialog"] button').filter({ hasText: /^编辑\s*$/ })
+      .filter({ visible: true }).first();
+  }
+
+  /** 打开「编辑」目录卡片（含 模型目录 清单与 取消/保存） */
   async openProviderEditor() {
     await this.ensureOpen();
     await this.openTab('模型').catch(() => {});
-    const edit = this.page.getByRole('button', { name: /编辑 中转站/ }).first();
-    await edit.click({ timeout: 8000 }).catch(() => {});
-    await this.page.locator('[role="dialog"] input').first()
+    const edit = this.providerEditButton();
+    await edit.waitFor({ state: 'visible', timeout: 10000 });
+    await edit.click({ timeout: 8000 }).catch(() => edit.click({ force: true, timeout: 5000 }));
+    // 卡片就绪标志：模型目录标题 + 取消按钮（不依赖 input）
+    await this.page.locator('[role="dialog"] button').filter({ hasText: /^取消$/ }).first()
       .waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
     await this.page.waitForTimeout(400);
     return this;
+  }
+
+  /** 读目录卡片文本（openProviderEditor 之后调用） */
+  async providerCardText() {
+    return this.page.evaluate(() => {
+      const d = [...document.querySelectorAll('[role="dialog"]')].find(d => d.getBoundingClientRect().height > 200);
+      return d ? (d.innerText || '').trim() : '';
+    });
+  }
+
+  /** 目录卡片的「取消」按钮（openProviderEditor 之后可用） */
+  providerCancelButton() {
+    return this.page.locator('[role="dialog"] button').filter({ hasText: /^取消$/ })
+      .filter({ visible: true }).first();
   }
 
   async cancelProviderEditor() {
