@@ -13,6 +13,24 @@ dsh CLI 入口、userData `%APPDATA%/sparkseed`——经核验一致）。
 测试侧不再在启动前清理 `%APPDATA%/sparkseed/Network/Cookies`——不要在夹具或用例里再引入
 任何 cookie 清理逻辑。
 
+## 已知应用回归（2026-10-31 10:48 构建，rc.8 重打包）
+
+当天构建引入三个问题，证据与复现探针齐备（`scripts/probe-rc8b-*.js`）：
+
+1. **settings/mutate 全被拒**（HTTP 200 包 `settings/rejected: "profile reload requires
+   the root Include entry"`）：新构建把数据 HOME 从 `~/.dsh` 换成 `~/.sparkseed` 并全新初始化，
+   生成的 profile 根文档（`cordis.yml`）是**没有根 Include 条目的旧式空列表**，任何设置写入
+   触发 profile 协调即被拒，前端静默吞掉——主题/字号/语言等全部设置**点了没反应**。
+   **M8-06A 失败是真阳性**，应用修复前不视为用例缺陷、不要改用例迁就。
+2. **hover 预览卡（Rx-Pca_hoverContent）只在点击其它区域时关闭**：鼠标移开/Esc 均不关，
+   残留浮层拦截 hero 区按钮点击（M9-08A 根因）。`WorkspacePage.openPickerMenu()` 已加
+   `dismissHoverOverlay()` 守卫（click-outside 清除），新入口若遇同类拦截照此处理。
+3. **`dsh web` 启动即崩**（64 个 client bundle 激活失败，`~/.sparkseed` 下无 web profile）：
+   web 轮整体不可用，桌面优先不受影响。
+
+另：数据 HOME 已按部署更名（ElineAI `~/.eline` → sparkseed `~/.sparkseed`）；套件文档里
+`~/.dsh` 的表述指官方 dsh 默认，sparkseed 实测以 `~/.sparkseed` 为准。
+
 ## 验证形态优先级
 
 **后续测试开发与验证主要关注桌面端（electron 形态）**：

@@ -178,9 +178,9 @@ async function startWebServer({ logger = console.log } = {}) {
     throw new Error(`等待 ${host}:${port} 监听超时。输出:\n${readLog().slice(-3000)}`);
   }
 
-  // 若桌面实例也在跑给出提示（两者可共存，但共享 ~/.dsh 业务数据，web 轮可能被干扰）
+  // 若桌面实例也在跑给出提示（两者可共存，但共享业务数据目录（sparkseed 为 ~/.sparkseed），web 轮可能被干扰）
   if (await desktopAppRunning()) {
-    logger('[web-server] 注意：检测到桌面实例进程在跑（与 web 服务共享 ~/.dsh 业务数据）');
+    logger('[web-server] 注意：检测到桌面实例进程在跑（与 web 服务共享业务数据目录（sparkseed 为 ~/.sparkseed））');
   }
 
   const info = { pid: child.pid, port, url: `http://${host}:${port}`, token, startedAt: new Date().toISOString() };

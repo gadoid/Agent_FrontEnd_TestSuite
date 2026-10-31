@@ -10,7 +10,7 @@
  *   - payload    {version:1, authority, issuedAt, expiresAt}（键顺序即签名内容）
  *   - 服务端校验 payload.authority === Host 头、issuedAt <= now < expiresAt、
  *                expiresAt - issuedAt <= 30d
- *   - 签名密钥持久化在 $DSH_HOME/.credentials.yaml（默认 ~/.dsh），**跨重启稳定不轮换**
+ *   - 签名密钥持久化在 $DSH_HOME/.credentials.yaml；默认目录按部署更名，sparkseed 为 ~/.sparkseed），**跨重启稳定不轮换**
  *
  * 实测（127.0.0.1:3180）：伪造 cookie → 200；无 cookie → 401；
  * `?token=` 流程种下的 cookie 与本模块构造的名字逐字符一致。
@@ -26,9 +26,11 @@ function b64u(buf) {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** DSH_HOME：环境变量优先，默认 ~/.dsh */
+/** DSH_HOME：环境变量优先。默认目录**按部署更名**：sparkseed 实测 `~/.sparkseed`
+ *  （ElineAI 时代为 `~/.eline`，官方 dsh 文档写 `~/.dsh`）；只影响离线 cookie 构造的
+ *  读路径，sparkseed 密钥不落盘本就走 token 兜底，改错仅表现为降级。 */
 function dshHome() {
-  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  return process.env.DSH_HOME || process.env.E2E_DSH_HOME || path.join(os.homedir(), '.sparkseed');
 }
 
 /** 凭据存储文件路径 */

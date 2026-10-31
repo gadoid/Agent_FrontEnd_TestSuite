@@ -100,9 +100,26 @@ class WorkspacePage extends BasePage {
     return (await btn.first().innerText()).trim();
   }
 
+  /**
+   * 清掉残留的 hover 预览浮层（Rx-Pca_hoverContent：会话行/消息卡的悬停预览卡）。
+   * 2026-10-31 构建实测：该卡**只在点击其它区域时关闭**，鼠标移开/Esc 均不关
+   * （见 scripts/probe-rc8b-hover-dismiss.js m1-m4）；残留时 hovering 区外控件
+   * （如 hero 的 选择工作区）会被它拦截点击——手工用户先点了别处所以无感。
+   * 处理：存在浮层时在主区域底部空白处点一下（click-outside 关闭），无浮层则零开销。
+   */
+  async dismissHoverOverlay() {
+    const has = await this.page.evaluate(() => !!document.querySelector('[class*="hoverContent"]'));
+    if (!has) return;
+    await this.page.mouse.click(720, 860).catch(() => {});
+    await this.page.waitForTimeout(500);
+  }
+
   /** 打开选择工作区菜单，返回菜单项文本（含「添加工作区…」） */
   async openPickerMenu() {
-    await this.workspacePickerButton().click();
+    await this.dismissHoverOverlay();
+    const btn = this.workspacePickerButton();
+    await btn.click({ timeout: 8000 })
+      .catch(async () => { await this.dismissHoverOverlay(); await btn.click({ force: true, timeout: 5000 }).catch(() => {}); });
     await this.page.locator('[role="menuitem"]').first().waitFor({ timeout: 10000 });
     await this.page.waitForTimeout(400);
     return this.page.locator('[role="menuitem"]').allInnerTexts();
