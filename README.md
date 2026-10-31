@@ -112,6 +112,6 @@ HTML 报告（`npm run report`）为每条用例补充三类信息，实现见 `
 ## 工程化细节
 
 - 中性 cwd（规避 .env 陷阱）、桌面实例进程探测（规避单实例锁）、分级有界关闭（防 worker 拆卸超时拖垮后续用例）、用例间 10s 缓冲、真实 LLM 波动的 retries 兜底
-- **electron 夹具每次拉起前清理累积的 `dsh-auth-*` cookie**（`%APPDATA%/sparkseed/Network/Cookies`）：host 每次启动签发唯一随机名的 cookie，Chromium 罐子只增不减，累计 ~71 个（≈15.7KB）会顶到 Node 默认 16KB 请求头上限，welcome 握手被拒 → 应用启动即崩（`desktop welcome: Web authentication failed`）。登录态在 `.credentials.yaml`，不受清理影响
+- **`dsh-auth-*` cookie 无限累积问题已由应用侧修复**：旧版 host 每次启动签发唯一随机名的 cookie，Chromium 罐子只增不减，累计 ~71 个（≈15.7KB）会顶到 Node 默认 16KB 请求头上限，welcome 握手被拒 → 应用启动即崩（`desktop welcome: Web authentication failed`）。套件曾在每次拉起前清理 `%APPDATA%/sparkseed/Network/Cookies`，应用修复后（2026-10-31）**已移除该清理**，测试侧不再动 cookie 库
 - 旧版（ElineAI rc.2）首载会弹「预览版说明」遮罩；rc.7 已移除该弹窗，`BasePage.dismissOnboarding()` 与 electron 夹具保留防御性兜底（存在才点，缺失静默跳过）
 - 真实 LLM 用例偶发「正在重试模型请求（n/5）」后成功，retries 已兜底

@@ -1,5 +1,9 @@
 # 根因分析：eline 桌面端启动「Web authentication failed」崩溃
 
+> **状态更新（2026-10-31）**：cookie 生命周期问题**应用侧已修复**；测试侧的临时缓解
+> `purgeAccumulatedAuthCookies()` 已从 `fixtures/app.fixtures.js` 移除（不要在夹具里再引入
+> cookie 清理）。本文保留作历史档案与排查思路。
+
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-10-26 |

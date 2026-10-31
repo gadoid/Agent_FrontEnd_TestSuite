@@ -61,34 +61,6 @@ const ELECTRON_ARGS = (readEnv('E2E_ELECTRON_ARGS', ['DSH_ELECTRON_ARGS']) || ''
 /** web 模式下应用地址 */
 const APP_URL = process.env.E2E_URL || 'http://127.0.0.1:3080';
 
-/** Electron 档案的 Chromium cookie 库（host 127.0.0.1 的 dsh-auth-* 都积在这里）。
- *  SparkSeed 的 userData 目录是 %APPDATA%/sparkseed（原 eline 同布局改名）。 */
-const COOKIE_DB = path.join(
-  process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-  'sparkseed', 'Network', 'Cookies',
-);
-
-/**
- * 清理累积的 dsh-auth-* cookie（每次启动 host 都签发**唯一随机名**的新 cookie，
- * Chromium 永不覆盖 → 罐子单调膨胀；/welcome 握手把全部历史 cookie 带上，累计到
- * ~16KB（实测 71 个 ≈ 15.7KB）就会超过 Node 默认 maxHeaderSize，host 拒绝请求，
- * 表现为启动期 `desktop welcome: Web authentication failed` 硬崩溃。
- * 每次拉起前清一次，罐子恒定 ~1 个，测试轮与启动次数解耦。登录态在
- * .credentials.yaml，不受此清理影响（已实测）。
- */
-function purgeAccumulatedAuthCookies() {
-  try {
-    if (!fs.existsSync(COOKIE_DB)) return;
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(COOKIE_DB);
-    const info = db.prepare("DELETE FROM cookies WHERE name LIKE 'dsh-auth-%'").run();
-    db.close();
-    if (info.changes > 0) console.log(`[electron] 已清理 ${info.changes} 个累积 dsh-auth-* cookie（防请求头超 16KB 上限）`);
-  } catch (e) {
-    console.warn(`[electron] 清理 dsh-auth cookie 失败（忽略，不影响用例）: ${e.message}`);
-  }
-}
-
 /** 中性 cwd：官方版若以项目根为 cwd 会读到 .env 里的 DSH_ 前缀键并启动失败 */
 const RUNTIME_CWD = path.join(os.tmpdir(), 'dsh-e2e-cwd');
 
@@ -153,7 +125,9 @@ const test = base.extend({
         + 'SparkSeed 有硬性单实例锁，请先彻底退出 SparkSeed 桌面应用再跑 electron 项目。');
     }
 
-    purgeAccumulatedAuthCookies();
+    // 历史：这里曾在每次拉起前清理累积的 dsh-auth-* cookie（旧版 host 无限签发
+    // 唯一随机名 cookie 顶到 16KB 请求头上限，welcome 握手被拒启动即崩）。
+    // 该问题应用侧已修复（2026-10-31），套件不再清理 cookie，勿再引入。
 
     fs.mkdirSync(RUNTIME_CWD, { recursive: true });
     const app = await _electron.launch({
@@ -199,7 +173,7 @@ const test = base.extend({
       // rc.7 起 dock 页签布局按会话持久化到 localStorage（dsh.sidebar-right.v1.*），
       // 终端页签另有全局绑定（dsh.terminal.binding.v1.*）：先前用例开的终端/文件页签
       // 会在新一轮启动时恢复，顶掉会话的 对话/轨迹 视图与「开始」落地页。
-      // 每次拉起清一次并重载，恢复「每个用例干净 dock」的隔离假设（与 cookie 清理同思路）。
+      // 每次拉起清一次并重载，恢复「每个用例干净 dock」的隔离假设。
       try {
         const cleared = await target.evaluate(() => {
           const kill = [];

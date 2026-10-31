@@ -152,7 +152,7 @@ skip 是**串行级联**的（serial describe 里一条 skip 会连跳后续）�
 |---|---|
 | 应用启动即崩，日志 `dsh: .env sets "DSH_XXX" …` | `.env` 毒化：清掉 `E2E_` 以外的键（见 §1.2 警告框） |
 | `Process failed to launch!`（偶发） | Playwright 启动窗口的瞬时噪音，retries 通常已兜底；连续出现再查 exe 路径与单实例 |
-| 桌面端 welcome 握手失败 `Web authentication failed` | cookie 罐子累积到请求头上限；夹具每次拉起前自动清理 `%APPDATA%/sparkseed/Network/Cookies`，若手工清过目录权限需保留 |
+| 桌面端 welcome 握手失败 `Web authentication failed` | 历史病根是 `dsh-auth-*` cookie 无限累积顶到 16KB 请求头上限，**应用侧已修复**，套件也不再清理 cookie；若在旧版本上复现：升级应用，或手工删 `%APPDATA%/sparkseed/Network/Cookies`（登录态在 `~/.dsh/.credentials.yaml`，不受影响） |
 | LLM 用例批量失败 `MISSING_CREDENTIAL` | 部署切到了官方 `deepseek-account` 路由但没给 key：`.env` 填 `E2E_LLM_API_KEY` |
 | LLM 用例批量失败 `No available channel` | 模型路由/渠道问题（历史案例见 TEST-CASES.md 已知约束第 9 条），先用 web 探针区分中转故障与路由映射问题 |
 | web 轮 settings 相关用例失败 | 已知应用缺陷（`profile reload requires the root Include entry`），应用修复前不视为用例缺陷；先对照桌面端行为 |

@@ -6,9 +6,12 @@
 `D:\sparkseed\sparkseed.exe`，v0.2.0-rc.8；套件适配基线是 rc.7 时代的
 `D:\elineai` 安装，rc.8 换了安装目录，关键机制——dsh-app:// 窗口协议、
 dsh CLI 入口、userData `%APPDATA%/sparkseed`——经核验一致）。
-套件已适配：exe 探测路径、cookie 库
-（`%APPDATA%/sparkseed`）、单实例检测（rc.7 起 19387 硬编码端口已移除，改为按
+套件已适配：exe 探测路径、单实例检测（rc.7 起 19387 硬编码端口已移除，改为按
 映像名查进程，见 `fixtures/ports.js` 的 `desktopAppRunning`）。
+
+**cookie 清理已移除（2026-10-31）**：旧版 dsh-auth-* cookie 无限累积问题**应用侧已修复**，
+测试侧不再在启动前清理 `%APPDATA%/sparkseed/Network/Cookies`——不要在夹具或用例里再引入
+任何 cookie 清理逻辑。
 
 ## 验证形态优先级
 
