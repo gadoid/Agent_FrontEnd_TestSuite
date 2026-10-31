@@ -277,12 +277,12 @@ test.describe('右侧工作面板', () => {
     expect(term.tabs.some(t => !['开始', '文件', '对话', '轨迹'].includes(t)), '应出现以 shell 命名的终端页签').toBe(true);
     let typed = false;
     if (term.xtermLike > 0) {
-      // web 形态：xterm 容器可定位，直接键入命令并验证文件联动
+      // web 与 rc.8 桌面端终端均有 .xterm 容器：直接键入命令并验证文件联动
       await pages.rightPanel.terminalType('echo m10-probe > m10-probe.txt');
       typed = true;
     } else {
-      // 桌面形态：终端为独立实现（无 .xterm 容器，2026-10 实测），页签存在即为通过
-      test.info().annotations.push({ type: 'note', description: '桌面终端无 .xterm 容器，文件联动断言由 web 轮覆盖' });
+      // 异常形态兜底：终端无 .xterm 容器则页签存在即为通过，联动断言降级
+      test.info().annotations.push({ type: 'note', description: '终端无 .xterm 容器，文件联动断言降级' });
     }
 
     const newTab = pages.rightPanel.newTabButton();
@@ -290,12 +290,20 @@ test.describe('右侧工作面板', () => {
     const opened = await pages.rightPanel.openWorkspaceFiles();
     expect(opened, '文件面板应打开').toBe(true);
     if (typed) {
-      // 终端就绪有竞态（大轮偶发首输未生效）：文件未出现时重点页签重输一次
-      let ok = await pages.rightPanel.filePanelContains('m10-probe.txt');
+      // 目录清单非实时（面板有「重新读取」钮）：轮询等刷新；
+      // 终端就绪另有竞态（偶发首输未生效）：轮询仍未见时重点页签重输一次
+      let ok = false;
+      for (let i = 0; i < 4 && !ok; i++) {
+        ok = await pages.rightPanel.filePanelContains('m10-probe.txt');
+        if (!ok) await page.waitForTimeout(1500);
+      }
       if (!ok) {
         const termTab = page.locator('[role="tab"]').filter({ hasText: /cmd|pwsh|bash|终端/i }).first();
         if (await termTab.isVisible().catch(() => false)) { await termTab.click().catch(() => {}); await page.waitForTimeout(800); }
         await pages.rightPanel.terminalType('echo m10-probe > m10-probe.txt');
+        // 重输后终端页签是激活态：切回「文件」页签再查，别用终端回显当信号
+        await pages.rightPanel.fileTab().click({ timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(800);
         ok = await pages.rightPanel.filePanelContains('m10-probe.txt');
       }
       expect(ok, '终端建的文件应出现在文件面板').toBe(true);

@@ -164,17 +164,36 @@ class RightPanelPage extends BasePage {
     return this.workspaceFilesEntry().isVisible().catch(() => false);
   }
 
-  /** 打开工作区文件面板，返回「文件」面板是否出现（重新读取 按钮为信号） */
+  /** dock「文件」页签：行内有「关闭」钮（会话视图的 文件 页签没有，避免误命中） */
+  fileTab() {
+    return this.page.locator('[role="tab"]')
+      .filter({ hasText: /^\s*文件\s*$/ })
+      .filter({ has: this.page.locator('button', { hasText: /^关闭$/ }) })
+      .first();
+  }
+
+  /** 工作区文件面板的「重新读取」按钮（面板内容渲染后才出现） */
+  rereadButton() {
+    return this.page.getByRole('button', { name: '重新读取' });
+  }
+
+  /**
+   * 打开工作区文件面板，返回面板内容是否真正渲染。
+   * rc.8 桌面端实测：点「工作区文件」入口只**创建**「文件」页签，不激活
+   * （终端等既有页签保持选中，rc.7 会自动激活）——补点页签本身确保面板显示。
+   * 成功信号 = 「重新读取」按钮可见（它在面板内容里，页签未激活时不存在）；
+   * 不能用「文件页签可见」当信号：页签在页签条上可见 ≠ 面板已显示。
+   */
   async openWorkspaceFiles() {
     if (!(await this.workspaceFilesEntry().isVisible().catch(() => false))) {
       if (!(await this.openLanding())) return false;
     }
     await this.workspaceFilesEntry().click({ timeout: 8000 })
       .catch(async () => this.workspaceFilesEntry().click({ force: true, timeout: 8000 }).catch(() => {}));
-    await this.page.getByRole('button', { name: '重新读取' })
-      .waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    return this.page.getByRole('button', { name: '重新读取' }).isVisible().catch(() => false)
-      || this.page.locator('[role="tab"]', { hasText: /^文件$/ }).first().isVisible().catch(() => false);
+    await this.fileTab().click({ timeout: 5000 }).catch(() => {});
+    await this.page.waitForTimeout(800);
+    await this.rereadButton().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    return this.rereadButton().isVisible().catch(() => false);
   }
 
   /** 工作区文件面板的工具按钮（重新读取 / 用 文件资源管理器 打开 / 更多打开方式） */
@@ -245,8 +264,18 @@ class RightPanelPage extends BasePage {
     });
   }
 
-  /** 工作区文件面板中是否可见指定文件名（需已打开「文件」面板） */
+  /**
+   * 工作区文件面板中是否可见指定文件名（需已打开「文件」面板）。
+   * 目录清单非实时 watch（面板有「重新读取」钮）：先点一次刷新再读；
+   * 读可见文本而非 DOM 全文——终端页签未激活时其内容不在可见文本里，
+   * 避免把终端回显的命令行误当文件名信号。
+   */
   async filePanelContains(name) {
+    const reread = this.rereadButton();
+    if (await reread.isVisible().catch(() => false)) {
+      await reread.click({ timeout: 5000 }).catch(() => {});
+      await this.page.waitForTimeout(800);
+    }
     return this.page.evaluate((n) => document.body.innerText.includes(n), name);
   }
 }
