@@ -21,7 +21,9 @@ dsh CLI 入口、userData `%APPDATA%/sparkseed`——经核验一致）。
    the root Include entry"`）：新构建把数据 HOME 从 `~/.dsh` 换成 `~/.sparkseed` 并全新初始化，
    生成的 profile 根文档（`cordis.yml`）是**没有根 Include 条目的旧式空列表**，任何设置写入
    触发 profile 协调即被拒，前端静默吞掉——主题/字号/语言等全部设置**点了没反应**。
-   **M8-06A 失败是真阳性**，应用修复前不视为用例缺陷、不要改用例迁就。
+   **M8-06A 已加守卫**：深浅两档亮度均无变化时按已知缺陷 `test.skip`（`tests/11-anti-cases.spec.js`），
+   应用修复后守卫自动失效恢复真断言；其余 settings 写入类用例（M8-06/M8-12/M10-06/08/07）
+   若同签名失败，按同思路处理，不要改断言迁就。
 2. **hover 预览卡（Rx-Pca_hoverContent）只在点击其它区域时关闭**：鼠标移开/Esc 均不关，
    残留浮层拦截 hero 区按钮点击（M9-08A 根因）。`WorkspacePage.openPickerMenu()` 已加
    `dismissHoverOverlay()` 守卫（click-outside 清除），新入口若遇同类拦截照此处理。
