@@ -5,14 +5,14 @@
  * - web 模式（默认）：chromium + storageState（登录态由 tests/auth.setup.js 准备）
  * - electron 模式：playwright._electron 启动 sparkseed 桌面客户端，取 dsh-app:// 主窗口作为 page
  *
- * SparkSeed（D:\sparkseed\sparkseed.exe，官方 DeepSeek Harness v0.2.0-rc.7，2026-10 实测）：
- *   · 前身 ElineAI（rc.2 定制构建）已更名 SparkSeed；dsh-app://app/ 主窗口、内部
- *     dsh host、~/.dsh 业务数据布局均延续。
+ * SparkSeed（D:\sparkseed\sparkseed.exe，官方 DeepSeek Harness v0.2.0-rc.8，2026-10 实测）：
+ *   · 前身 ElineAI（rc.2 定制构建）已更名 SparkSeed；dsh-app://app/ 主窗口与内部
+ *     dsh host 延续；业务数据 HOME 为 `~/.sparkseed`（E2E_DSH_HOME 可自定义指定）。
  *   · **桌面内部 host 不再硬编码 19387**（改随机端口）——「是否已有实例」按映像名
  *     查进程判定（Electron requestSingleInstanceLock 单实例锁仍硬性，抢不到即 quit）。
  *   · 欢迎流程重做：file://welcome.html 登录/API Key 引导（无旧版「预览版说明」弹窗）；
- *     凭据在 ~/.dsh/.credentials.yaml，已登录状态下启动直达主窗口。
- *   · **cookie 离线构造不可用**（与 eline 相同）：web 登录态走 token 流程
+ *     凭据在 `<HOME>/.credentials.yaml`，已登录状态下启动直达主窗口。
+ *   · **cookie 离线构造不可用**：web 登录态走 token 流程
  *     （`dsh web` 启动输出 ?token=…，web-server 夹具自动捕获）。
  *   · 启动会读当前工作目录的 .env，命中 DSH_ 前缀即抛错退出 → 必须给中性 cwd。
  *
@@ -25,7 +25,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createPages } = require('../pages');
-const { loadEnv, readEnv, llmEnv } = require('./env');
+const { loadEnv, readEnv, llmEnv, dshChildEnv } = require('./env');
 const { desktopAppRunning, desktopImageName, desktopExe } = require('./ports');
 const { describeTitle } = require('./test-data/case-catalog');
 
@@ -37,7 +37,6 @@ const ELECTRON_PROBE_PATHS = [
   readEnv('E2E_DSH_EXE', ['DSH_ELECTRON_PATH']),
   'D:/sparkseed/sparkseed.exe',
   `${process.env.LOCALAPPDATA || ''}/Programs/sparkseed/sparkseed.exe`,
-  `${process.env.LOCALAPPDATA || ''}/Programs/DeepSeek Harness/DeepSeek Harness.exe`,
 ].filter(Boolean);
 
 /** 探测第一个真实存在的桌面客户端 exe（env 指定的路径优先） */
@@ -134,7 +133,7 @@ const test = base.extend({
       executablePath: ELECTRON_PATH,
       cwd: RUNTIME_CWD,                    // 中性 cwd：避开项目根 .env（DSH_ 前缀会让应用启动失败）
       args: ELECTRON_ARGS.length ? ELECTRON_ARGS : undefined,
-      env: { ...process.env, ...llmEnv() },   // 注入 LLM 凭据（deepseek-account 路由读 DEEPSEEK_API_KEY）
+      env: { ...process.env, ...llmEnv(), ...dshChildEnv() },   // 注入 LLM 凭据；E2E_DSH_HOME → DSH_HOME（自定义业务数据 HOME）
       timeout: 60000,
     });
 

@@ -49,7 +49,7 @@ function credentialsFile(home = dshHome()) {
 function readSecret(home = dshHome()) {
   const file = credentialsFile(home);
   if (!fs.existsSync(file)) {
-    throw new Error(`找不到凭据文件: ${file}（可用 DSH_HOME 覆盖默认 ~/.dsh）`);
+    throw new Error(`找不到凭据文件: ${file}（可用 E2E_DSH_HOME / DSH_HOME 覆盖，默认 ~/.sparkseed）`);
   }
   const text = fs.readFileSync(file, 'utf8');
   const key = 'client-connection/browser-session';

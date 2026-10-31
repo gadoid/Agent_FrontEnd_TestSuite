@@ -74,6 +74,17 @@ function llmEnv() {
   return key ? { DEEPSEEK_API_KEY: key } : {};
 }
 
+/**
+ * 业务数据 HOME（profile/凭据/会话等）注入：把 E2E_DSH_HOME 翻译成应用认的 DSH_HOME。
+ * sparkseed 默认 HOME 是 `~/.sparkseed`（`dsh-home-paths` 读 DSH_HOME 覆盖）；
+ * 真实环境变量 DSH_HOME 优先级更高（已随 process.env 透传，此处不覆盖）。
+ * 桌面端与 dsh web 子进程统一使用，保证「可自定义指定」对两形态同时生效。
+ */
+function dshChildEnv() {
+  const home = readEnv('E2E_DSH_HOME');
+  return home && !process.env.DSH_HOME ? { DSH_HOME: home } : {};
+}
+
 function loadEnv(file = ENV_FILE) {
   assertEnvFileSafe(file);
   if (!fs.existsSync(file)) return {};
@@ -113,6 +124,7 @@ module.exports = {
   loadEnv,
   readEnv,
   llmEnv,
+  dshChildEnv,
   assertEnvFileSafe,
   envKeys,
   ENV_FILE,

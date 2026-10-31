@@ -17,7 +17,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadEnv, readEnv, llmEnv } = require('./env');
+const { loadEnv, readEnv, llmEnv, dshChildEnv } = require('./env');
 const { portInUse, waitForPortInUse, waitForPortFree, servicePort, serviceHost, desktopExe, desktopAppRunning } = require('./ports');
 
 loadEnv();
@@ -113,7 +113,7 @@ async function startWebServer({ logger = console.log } = {}) {
   }
 
   const exe = desktopExe();
-  if (!exe) throw new Error('未配置 E2E_DSH_EXE（官方版 DeepSeek Harness 可执行文件路径）');
+  if (!exe) throw new Error('未配置 E2E_DSH_EXE（SparkSeed 可执行文件路径）');
   const entry = cliEntry();
   // 注意：入口位于 resources/app.asar 内部。asar 是**文件**不是目录，Node 的 fs 无法
   // 穿越它（只有 Electron 运行时自己会解析 asar 路径），因此这里绝不能做 existsSync 检查。
@@ -136,7 +136,7 @@ async function startWebServer({ logger = console.log } = {}) {
 
   const child = spawn(exe, args, {
     cwd: RUNTIME_CWD,                    // 中性 cwd：避开项目根 .env
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...llmEnv() },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...llmEnv(), ...dshChildEnv() },
     stdio: ['ignore', fd, fd],
     detached: true,                      // 建独立进程组：既能脱离父进程，也能整组杀
   });

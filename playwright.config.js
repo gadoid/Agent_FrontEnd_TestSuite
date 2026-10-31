@@ -14,7 +14,7 @@ require('./fixtures/env').loadEnv();
  * 常用命令：
  *   npm run test:web        只跑 web（自动起停 dsh web 服务）
  *   npm run test:electron   只跑桌面端（须先彻底退出桌面应用：官方版有硬性单实例锁）
- *   npm test                串行跑两轮（两端共享 ~/.dsh 业务数据，并行会互相干扰）
+ *   npm test                串行跑两轮（两端共享业务数据目录（sparkseed 默认 ~/.sparkseed），并行会互相干扰）
  */
 module.exports = defineConfig({
   testDir: './tests',
@@ -82,7 +82,7 @@ module.exports = defineConfig({
     /* 4. Electron 桌面形态：未配置 E2E_DSH_EXE 时用例自动 skip。
      *    官方版桌面 GUI 有硬性单实例锁（抢占失败即 app.quit()），且有独立的
      *    内部 host 端口 19387，与 web 形态的 3080 互不冲突——但两端共享
-     *    ~/.dsh 业务数据（sessions/storages/workspace.json），仍应分轮串行跑。 */
+     *    业务数据（sessions/storages/workspace.json，sparkseed 默认 ~/.sparkseed），仍应分轮串行跑。 */
     {
       name: 'electron',
       testIgnore: [/auth\.setup\.js/, /web-server\.(setup|teardown)\.js/],
